@@ -652,19 +652,23 @@ const App = {
 
     // ── Profile ───────────────────────────────────────────────────────────────
     profile() {
-      const metrics  = DB.getBodyMetrics();
-      const latest   = metrics[0] || null;
-      const prev     = metrics[1] || null;
-      const profile  = DB.getProfile() || {};
-      const allWkts  = DB.getWorkouts();
-      const streak   = DB.getCurrentStreak();
-      const name     = profile.name || 'Athlete';
-      const initial  = name[0].toUpperCase();
+      const metrics    = DB.getBodyMetrics();
+      const latest     = metrics[0] || null;
+      const profile    = DB.getProfile() || {};
+      const allWkts    = DB.getWorkouts();
+      const streak     = DB.getCurrentStreak();
+      const name       = profile.name || 'Athlete';
+      const initial    = name[0].toUpperCase();
 
-      const deltaW = (latest && prev && latest.weight && prev.weight)
-        ? (latest.weight - prev.weight).toFixed(1) : null;
-      const deltaBF = (latest && prev && latest.bodyFat && prev.bodyFat)
-        ? (latest.bodyFat - prev.bodyFat).toFixed(1) : null;
+      // Delta: compare the two most recent entries within the last 30 days only
+      const chart30    = DB.getBodyMetricsLastNDays(30);
+      const chartFirst = chart30[chart30.length - 1] || null; // oldest in window
+      const chartLast  = chart30[0] || null;                  // newest in window
+      const prev       = chartFirst !== chartLast ? chartFirst : null;
+      const deltaW  = (chartLast && prev && chartLast.weight && prev.weight)
+        ? (chartLast.weight - prev.weight).toFixed(1) : null;
+      const deltaBF = (chartLast && prev && chartLast.bodyFat && prev.bodyFat)
+        ? (chartLast.bodyFat - prev.bodyFat).toFixed(1) : null;
 
       const fbName  = Firebase.ready ? Firebase.userName : null;
       const fbPhoto = Firebase.ready ? Firebase.userPhoto : null;
@@ -717,7 +721,7 @@ const App = {
               <span class="chart-card-title">Weight (last 30 days)</span>
               ${deltaW !== null ? `<span style="font-size:.8rem;color:${parseFloat(deltaW)<0?'var(--green)':'var(--red)'};text-align:right">
                 ${parseFloat(deltaW) > 0 ? '+' : ''}${deltaW} kg<br>
-                <span style="font-size:.68rem;color:var(--txt3)">vs ${App._fmtDateShort(new Date(prev.date))}</span>
+                <span style="font-size:.68rem;color:var(--txt3)">vs ${App._fmtDateShort(new Date(chartFirst.date))}</span>
               </span>` : ''}
             </div>
             <canvas id="body-weight-chart" height="120"></canvas>
