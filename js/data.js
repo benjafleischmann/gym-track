@@ -102,12 +102,16 @@ const DB = {
   },
 
   // ── Body Metrics ───────────────────────────────────────────────────────────
-  getBodyMetrics()       { return this._get(this.K.BODY_METRICS) || []; },
+  getBodyMetrics() {
+    const list = this._get(this.K.BODY_METRICS) || [];
+    return list.sort((a, b) => new Date(b.date) - new Date(a.date));
+  },
   getLatestBodyMetric()  { return this.getBodyMetrics()[0] || null; },
   saveBodyMetric(m) {
-    const list = this.getBodyMetrics();
+    const list = this._get(this.K.BODY_METRICS) || [];
     const idx  = list.findIndex(x => x.id === m.id);
-    if (idx >= 0) list[idx] = m; else list.unshift(m);
+    if (idx >= 0) list[idx] = m; else list.push(m);
+    list.sort((a, b) => new Date(b.date) - new Date(a.date));
     this._set(this.K.BODY_METRICS, list);
     return m;
   },
