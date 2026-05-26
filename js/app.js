@@ -47,6 +47,15 @@ const App = {
     // React to auth state changes (sign-in / sign-out)
     Firebase.onAuthChange(uid => {
       if (uid) {
+        // If no profile yet (signed in from onboarding), auto-complete setup
+        if (!DB.getProfile()) {
+          const name = Firebase.userName || 'Athlete';
+          Firebase.restoreFromCloud().then(count => {
+            if (count > 0) App._toast(`Welcome back! Synced ${count} items.`, 'success');
+          }).catch(() => {});
+          App._finishOnboarding(name, 'muscle', 'mixed');
+          return;
+        }
         Firebase.restoreFromCloud().then(count => {
           if (count > 0) App._toast(`Synced ${count} items from cloud`, 'success');
         }).catch(() => {});
@@ -910,11 +919,19 @@ const App = {
           <div class="step-indicator">
             <div class="step-dot active"></div><div class="step-dot"></div><div class="step-dot"></div>
           </div>
+          <button class="btn btn-primary" style="margin-bottom:.75rem" data-action="google-signin">
+            Continue with Google
+          </button>
+          <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.75rem">
+            <div style="flex:1;height:1px;background:var(--border)"></div>
+            <span style="font-size:.75rem;color:var(--txt3)">or set up manually</span>
+            <div style="flex:1;height:1px;background:var(--border)"></div>
+          </div>
           <div class="form-group" style="padding:0 0 .75rem">
             <label class="form-label">Your name</label>
             <input class="form-input" id="ob-name" placeholder="e.g. Alex" autocomplete="given-name">
           </div>
-          <button class="btn btn-primary" data-action="ob-next" data-step="2">Continue</button>
+          <button class="btn btn-ghost" style="border:1px solid var(--border)" data-action="ob-next" data-step="2">Continue manually</button>
         </div>
       </div>`;
 
@@ -1672,15 +1689,17 @@ const App = {
         }, 'Remove', true);
         break;
 
-      case 'google-signin':
+      case 'google-signin': {
+        const origText = el.textContent.trim();
         el.disabled = true;
         el.textContent = 'Signing in…';
         Firebase.signIn().catch(() => {
           el.disabled = false;
-          el.textContent = 'Sign in with Google';
+          el.textContent = origText;
           App._toast('Sign-in failed. Please try again.', 'error');
         });
         break;
+      }
 
       case 'google-signout':
         this._confirm('Sign out of your Google account?', async () => {
