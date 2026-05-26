@@ -56,6 +56,8 @@ const App = {
           App._finishOnboarding(name, 'muscle', 'mixed');
           return;
         }
+        // Push any local data to Firestore, then pull from cloud
+        App._syncLocalDataToCloud().catch(() => {});
         Firebase.restoreFromCloud().then(count => {
           if (count > 0) App._toast(`Synced ${count} items from cloud`, 'success');
         }).catch(() => {});
@@ -713,8 +715,10 @@ const App = {
           <div class="chart-card">
             <div class="chart-card-header">
               <span class="chart-card-title">Weight (last 30 days)</span>
-              ${deltaW !== null ? `<span style="font-size:.8rem;color:${parseFloat(deltaW)<0?'var(--green)':'var(--red)'}">
-                ${parseFloat(deltaW) > 0 ? '+' : ''}${deltaW} kg</span>` : ''}
+              ${deltaW !== null ? `<span style="font-size:.8rem;color:${parseFloat(deltaW)<0?'var(--green)':'var(--red)'};text-align:right">
+                ${parseFloat(deltaW) > 0 ? '+' : ''}${deltaW} kg<br>
+                <span style="font-size:.68rem;color:var(--txt3)">vs ${App._fmtDateShort(new Date(prev.date))}</span>
+              </span>` : ''}
             </div>
             <canvas id="body-weight-chart" height="120"></canvas>
           </div>
@@ -1345,6 +1349,19 @@ const App = {
       html += `<div class="cal-day ${isToday?'today':''} ${hasW?'has-workout':''}" data-action="cal-day-select" data-date="${key}">${d}</div>`;
     }
     grid.innerHTML = html;
+  },
+
+  // ── Cloud sync ─────────────────────────────────────────────────────────────
+  async _syncLocalDataToCloud() {
+    if (!Firebase.ready) return;
+    const workouts = DB.getWorkouts();
+    const metrics  = DB.getBodyMetrics();
+    const profile  = DB.getProfile();
+    await Promise.all([
+      ...workouts.map(w => Firebase.syncWorkout(w).catch(() => {})),
+      ...metrics.map(m => Firebase.syncMetric(m).catch(() => {})),
+    ]);
+    if (profile) Firebase.syncProfile(profile).catch(() => {});
   },
 
   // ── Friends ────────────────────────────────────────────────────────────────
@@ -2377,6 +2394,11 @@ const App = {
   _fmtDateFull(d) {
     if (isNaN(d.getTime())) return '';
     return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  },
+
+  _fmtDateShort(d) {
+    if (!d || isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   },
 
   _fmtGoal(g) {
