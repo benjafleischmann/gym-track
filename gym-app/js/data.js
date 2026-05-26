@@ -102,12 +102,33 @@ const DB = {
   },
 
   // ── Body Metrics ───────────────────────────────────────────────────────────
-  getBodyMetrics()       { return this._get(this.K.BODY_METRICS) || []; },
+  _dateStr(d) {
+    // Normalize Firestore Timestamps, Date objects, or strings → 'YYYY-MM-DD'
+    if (!d) return '';
+    if (typeof d === 'string') return d.slice(0, 10);
+    if (typeof d.toDate === 'function') return d.toDate().toISOString().slice(0, 10);
+    if (typeof d.seconds === 'number') return new Date(d.seconds * 1000).toISOString().slice(0, 10);
+    return new Date(d).toISOString().slice(0, 10) || '';
+  },
+  _metricSort(list) {
+    return list.sort((a, b) => {
+      const da = this._dateStr(a.date);
+      const db = this._dateStr(b.date);
+      return db > da ? 1 : db < da ? -1 : 0;
+    });
+  },
+  getBodyMetrics() {
+    const list = this._get(this.K.BODY_METRICS) || [];
+    return this._metricSort(list);
+  },
   getLatestBodyMetric()  { return this.getBodyMetrics()[0] || null; },
   saveBodyMetric(m) {
-    const list = this.getBodyMetrics();
+    // Normalize date field before saving
+    if (m.date) m = { ...m, date: this._dateStr(m.date) };
+    const list = this._get(this.K.BODY_METRICS) || [];
     const idx  = list.findIndex(x => x.id === m.id);
-    if (idx >= 0) list[idx] = m; else list.unshift(m);
+    if (idx >= 0) list[idx] = m; else list.push(m);
+    this._metricSort(list);
     this._set(this.K.BODY_METRICS, list);
     return m;
   },
