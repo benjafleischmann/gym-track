@@ -36,6 +36,14 @@ const App = {
     this._bindNav();
     this._bindGlobal();
 
+    // Init Firebase in background — non-blocking
+    Firebase.init().then(() => {
+      if (window._pendingFriendInvite) {
+        this._handleFriendInvite(window._pendingFriendInvite);
+        window._pendingFriendInvite = null;
+      }
+    }).catch(() => {});
+
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').catch(() => {});
     }
@@ -107,7 +115,7 @@ const App = {
     const s = this.state.screen;
     if (s === 'dashboard')       { this._initCharts(['weekly-volume','body-weight-mini']); }
     if (s === 'active-workout')  { this._startWorkoutTimer(); }
-    if (s === 'profile')         { this._initCharts(['body-weight-chart','body-fat-chart']); }
+    if (s === 'profile')         { this._initCharts(['body-weight-chart','body-fat-chart']); this._loadFriendsSection(); }
     if (s === 'history')         { this._renderCalendar(); }
   },
 
@@ -725,18 +733,20 @@ const App = {
           <h2>Friends</h2>
         </div>
 
-        <div class="friends-coming-soon">
-          <div class="friends-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-              <circle cx="9" cy="7" r="4"/>
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-            </svg>
+        <div style="margin:.25rem 1rem .5rem">
+          <div class="invite-card">
+            <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.4px;color:var(--txt3);margin-bottom:.45rem">Your invite link</div>
+            <div style="display:flex;align-items:center;gap:.5rem">
+              <div id="invite-link-preview" style="flex:1;font-size:.72rem;color:var(--txt2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:var(--bg3);padding:.5rem .7rem;border-radius:var(--radius-sm)">
+                ${Firebase.ready ? Firebase.getInviteLink() : 'Connecting…'}
+              </div>
+              <button class="btn btn-sm btn-ghost" data-action="copy-invite-link">Copy</button>
+            </div>
           </div>
-          <div class="friends-title">Share with friends</div>
-          <div class="friends-subtitle">Connect with your partner and friends to share workouts, progress and keep each other motivated.</div>
-          <div class="friends-badge">Coming in next update</div>
+        </div>
+
+        <div id="friends-list-container">
+          <div style="padding:1.25rem 1rem;text-align:center;color:var(--txt3);font-size:.82rem">Loading…</div>
         </div>
 
       </div>`;
@@ -920,6 +930,7 @@ const App = {
   _finishOnboarding(name, goal, trainingType) {
     const profile = { id: DB.uid(), name, goal, trainingType, createdAt: new Date().toISOString() };
     DB.saveProfile(profile);
+    Firebase.onReady(() => Firebase.syncProfile(profile).catch(() => {}));
     document.getElementById('bottom-nav').classList.remove('hidden');
     this.navigate('dashboard');
   },
@@ -1066,6 +1077,7 @@ const App = {
 
       w.completedAt = new Date().toISOString();
       DB.saveWorkout(w);
+      Firebase.onReady(() => Firebase.syncWorkout(w).catch(() => {}));
       DB.saveActiveWorkout(null);
 
       App._stopWorkoutTimer();
@@ -1286,6 +1298,77 @@ const App = {
     grid.innerHTML = html;
   },
 
+  // ── Friends ────────────────────────────────────────────────────────────────
+  async _loadFriendsSection() {
+    if (!Firebase.ready) {
+      Firebase.onReady(() => this._loadFriendsSection());
+      return;
+    }
+
+    const container = document.getElementById('friends-list-container');
+    if (!container) return;
+
+    // Update invite link
+    const linkEl = document.getElementById('invite-link-preview');
+    if (linkEl) linkEl.textContent = Firebase.getInviteLink();
+
+    const friends = await Firebase.getFriendsWithData();
+
+    if (!friends.length) {
+      container.innerHTML = `
+        <div class="friends-empty">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+          <div class="friends-empty-title">No friends yet</div>
+          <div class="friends-empty-sub">Copy your invite link above and send it to your partner or friends. When they open it on their phone the connection is made automatically.</div>
+        </div>`;
+      return;
+    }
+
+    container.innerHTML = friends.map(f => this._friendCard(f)).join('');
+  },
+
+  _friendCard(f) {
+    const lastW   = f.recentWorkouts?.[0];
+    const initial = (f.name || '?')[0].toUpperCase();
+    return `
+      <div class="friend-card">
+        <div class="friend-avatar">${initial}</div>
+        <div class="friend-info">
+          <div class="friend-name">${f.name || 'Friend'}</div>
+          <div class="friend-last">${lastW
+            ? `${lastW.name} · ${App._fmtDateFull(new Date(lastW.startedAt))}`
+            : 'No workouts yet'}</div>
+        </div>
+        <button class="btn btn-sm btn-ghost" style="color:var(--red);flex-shrink:0"
+                data-action="remove-friend" data-uid="${f.uid}">Remove</button>
+      </div>`;
+  },
+
+  async _handleFriendInvite(friendUid) {
+    try {
+      const profile = await Firebase.getUserProfile(friendUid);
+      const name    = profile?.name || 'Someone';
+      this._confirm(
+        `Add ${name} as a friend? They'll be able to see your workouts.`,
+        async () => {
+          const ok = await Firebase.addFriend(friendUid);
+          if (ok) {
+            this._toast(`${name} added!`, 'success');
+            if (this.state.screen === 'profile') this._loadFriendsSection();
+          }
+        },
+        'Add Friend'
+      );
+    } catch (e) {
+      console.warn('handleFriendInvite failed', e);
+    }
+  },
+
   // ── Event Handlers ─────────────────────────────────────────────────────────
   _handleClick(e) {
     const el     = e.target.closest('[data-action]');
@@ -1430,7 +1513,9 @@ const App = {
       }
       case 'delete-workout':
         this._confirm('Delete this workout?', () => {
-          DB.deleteWorkout(el.dataset.id);
+          const _wid = el.dataset.id;
+          DB.deleteWorkout(_wid);
+          Firebase.onReady(() => Firebase.deleteWorkout(_wid).catch(() => {}));
           this.navigate('history');
         }, 'Delete', true);
         break;
@@ -1494,7 +1579,9 @@ const App = {
         break;
       case 'delete-metric':
         this._confirm('Delete this entry?', () => {
-          DB.deleteBodyMetric(el.dataset.id);
+          const _mid = el.dataset.id;
+          DB.deleteBodyMetric(_mid);
+          Firebase.onReady(() => Firebase.deleteMetric(_mid).catch(() => {}));
           this._render();
         }, 'Delete', true);
         break;
@@ -1527,6 +1614,30 @@ const App = {
       // Profile
       case 'open-profile':
         this._showProfileSheet();
+        break;
+
+      // Friends
+      case 'copy-invite-link': {
+        const link = Firebase.ready ? Firebase.getInviteLink() : '';
+        if (!link) { this._toast('Still connecting, try again', 'error'); return; }
+        navigator.clipboard?.writeText(link).then(() => {
+          this._toast('Invite link copied!', 'success');
+        }).catch(() => {
+          // iOS fallback
+          const ta = document.createElement('textarea');
+          ta.value = link;
+          document.body.appendChild(ta);
+          ta.select(); document.execCommand('copy');
+          document.body.removeChild(ta);
+          this._toast('Invite link copied!', 'success');
+        });
+        break;
+      }
+      case 'remove-friend':
+        this._confirm('Remove this friend?', async () => {
+          await Firebase.removeFriend(el.dataset.uid).catch(() => {});
+          this._loadFriendsSection();
+        }, 'Remove', true);
         break;
     }
   },
@@ -1748,7 +1859,9 @@ const App = {
       const unit = modal.querySelector('.chip.selected[data-group="weight-unit"]')?.dataset?.val;
       if (name) {
         const p = DB.getProfile() || {};
-        DB.saveProfile({ ...p, name, goal: goal || p.goal });
+        const updated = { ...p, name, goal: goal || p.goal };
+        DB.saveProfile(updated);
+        Firebase.onReady(() => Firebase.syncProfile(updated).catch(() => {}));
       }
       if (unit) DB.saveSettings({ ...DB.getSettings(), weightUnit: unit });
       this._closeModal();
@@ -1889,6 +2002,7 @@ const App = {
     };
 
     DB.saveWorkout(workout);
+    Firebase.onReady(() => Firebase.syncWorkout(workout).catch(() => {}));
     App.state.pastWorkoutDraft = null;
     this._toast(isEdit ? 'Workout updated!' : 'Workout saved!', 'success');
     if (isEdit) {
@@ -1924,6 +2038,7 @@ const App = {
       return;
     }
     DB.saveBodyMetric(metric);
+    Firebase.onReady(() => Firebase.syncMetric(metric).catch(() => {}));
     this._toast('Metrics saved!', 'success');
     this.navigate('profile');
   },

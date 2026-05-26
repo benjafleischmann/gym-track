@@ -1,0 +1,186 @@
+// ─── Firebase module ───────────────────────────────────────────────────────────
+// Loaded as a regular <script> before app.js.
+// Uses dynamic imports so it doesn't block app startup.
+// Exposes window.Firebase with auth, sync and friends helpers.
+
+(function () {
+  const CONFIG = {
+    apiKey:            'AIzaSyC2MM7UFaCB5gx0UML82WtIFzOFOs-cfPw',
+    authDomain:        'gym-app-f6e7d.firebaseapp.com',
+    projectId:         'gym-app-f6e7d',
+    storageBucket:     'gym-app-f6e7d.firebasestorage.app',
+    messagingSenderId: '1096284012899',
+    appId:             '1:1096284012899:web:99f7274555dcceabd69356',
+  };
+
+  // Closure-scoped Firestore helpers (filled after dynamic import)
+  let db, _doc, _setDoc, _getDoc, _deleteDoc,
+      _collection, _getDocs, _query, _orderBy, _limit, _serverTimestamp;
+
+  window.Firebase = {
+    uid:       null,
+    ready:     false,
+    _cbs:      [],
+
+    // ── Boot ───────────────────────────────────────────────────────────────
+    async init() {
+      try {
+        const BASE = 'https://www.gstatic.com/firebasejs/12.13.0';
+        const [
+          { initializeApp },
+          { getAuth, signInAnonymously, onAuthStateChanged },
+          { getFirestore, doc, getDoc, setDoc, deleteDoc,
+            collection, getDocs, query, orderBy, limit, serverTimestamp },
+        ] = await Promise.all([
+          import(`${BASE}/firebase-app.js`),
+          import(`${BASE}/firebase-auth.js`),
+          import(`${BASE}/firebase-firestore.js`),
+        ]);
+
+        // Store in closure
+        _doc = doc; _setDoc = setDoc; _getDoc = getDoc; _deleteDoc = deleteDoc;
+        _collection = collection; _getDocs = getDocs;
+        _query = query; _orderBy = orderBy; _limit = limit;
+        _serverTimestamp = serverTimestamp;
+
+        const app  = initializeApp(CONFIG);
+        db         = getFirestore(app);
+        const auth = getAuth(app);
+
+        await signInAnonymously(auth);
+
+        return new Promise(resolve => {
+          onAuthStateChanged(auth, async user => {
+            if (!user) return;
+            this.uid   = user.uid;
+            this.ready = true;
+
+            // Sync local profile up to Firestore
+            if (typeof DB !== 'undefined') {
+              const p = DB.getProfile();
+              if (p) this.syncProfile(p).catch(() => {});
+            }
+
+            // Handle ?addFriend= invite in URL
+            const params   = new URLSearchParams(window.location.search);
+            const inviteUid = params.get('addFriend');
+            if (inviteUid && inviteUid !== this.uid) {
+              window._pendingFriendInvite = inviteUid;
+              history.replaceState({}, '', window.location.pathname);
+            }
+
+            resolve(this.uid);
+            this._cbs.forEach(cb => cb(this.uid));
+            this._cbs = [];
+          });
+        });
+      } catch (e) {
+        console.warn('[Firebase] init failed:', e);
+      }
+    },
+
+    // Call cb immediately if ready, else queue it
+    onReady(cb) {
+      if (this.ready) cb(this.uid);
+      else this._cbs.push(cb);
+    },
+
+    // ── Profile ─────────────────────────────────────────────────────────────
+    async syncProfile(profile) {
+      if (!this.uid || !db) return;
+      await _setDoc(_doc(db, 'users', this.uid), {
+        name:         profile.name         || 'Athlete',
+        goal:         profile.goal         || null,
+        trainingType: profile.trainingType || null,
+        lastActive:   _serverTimestamp(),
+      }, { merge: true });
+    },
+
+    async getUserProfile(uid) {
+      if (!db) return null;
+      const snap = await _getDoc(_doc(db, 'users', uid));
+      return snap.exists() ? { uid, ...snap.data() } : null;
+    },
+
+    // ── Workouts ─────────────────────────────────────────────────────────────
+    async syncWorkout(workout) {
+      if (!this.uid || !db) return;
+      await _setDoc(_doc(db, 'workouts', this.uid, 'items', workout.id), {
+        ...workout,
+        uid:      this.uid,
+        syncedAt: _serverTimestamp(),
+      });
+    },
+
+    async deleteWorkout(workoutId) {
+      if (!this.uid || !db) return;
+      await _deleteDoc(_doc(db, 'workouts', this.uid, 'items', workoutId)).catch(() => {});
+    },
+
+    async getFriendWorkouts(friendUid, n = 3) {
+      if (!db) return [];
+      try {
+        const q    = _query(_collection(db, 'workouts', friendUid, 'items'),
+                            _orderBy('startedAt', 'desc'), _limit(n));
+        const snap = await _getDocs(q);
+        return snap.docs.map(d => d.data());
+      } catch { return []; }
+    },
+
+    // ── Body Metrics ──────────────────────────────────────────────────────────
+    async syncMetric(metric) {
+      if (!this.uid || !db) return;
+      await _setDoc(_doc(db, 'metrics', this.uid, 'items', metric.id), {
+        ...metric, uid: this.uid,
+      });
+    },
+
+    async deleteMetric(metricId) {
+      if (!this.uid || !db) return;
+      await _deleteDoc(_doc(db, 'metrics', this.uid, 'items', metricId)).catch(() => {});
+    },
+
+    // ── Friends ───────────────────────────────────────────────────────────────
+    getInviteLink() {
+      const base = (window.location.origin + window.location.pathname).replace(/\/$/, '');
+      return `${base}?addFriend=${this.uid}`;
+    },
+
+    async addFriend(friendUid) {
+      if (!this.uid || !db || !friendUid || friendUid === this.uid) return false;
+      const ts = new Date().toISOString();
+      await Promise.all([
+        _setDoc(_doc(db, 'friends', this.uid,     'list', friendUid),    { friendUid,          addedAt: ts }),
+        _setDoc(_doc(db, 'friends', friendUid,    'list', this.uid),     { friendUid: this.uid, addedAt: ts }),
+      ]);
+      return true;
+    },
+
+    async removeFriend(friendUid) {
+      if (!this.uid || !db) return;
+      await Promise.all([
+        _deleteDoc(_doc(db, 'friends', this.uid,  'list', friendUid)),
+        _deleteDoc(_doc(db, 'friends', friendUid, 'list', this.uid)),
+      ]).catch(() => {});
+    },
+
+    async getFriendsWithData() {
+      if (!this.uid || !db) return [];
+      try {
+        const snap   = await _getDocs(_collection(db, 'friends', this.uid, 'list'));
+        const uids   = snap.docs.map(d => d.data().friendUid).filter(Boolean);
+        const result = await Promise.all(uids.map(async uid => {
+          const [profile, workouts] = await Promise.all([
+            this.getUserProfile(uid),
+            this.getFriendWorkouts(uid, 3),
+          ]);
+          return profile ? { ...profile, recentWorkouts: workouts } : null;
+        }));
+        return result.filter(Boolean);
+      } catch (e) {
+        console.warn('[Firebase] getFriendsWithData:', e);
+        return [];
+      }
+    },
+  };
+})();
