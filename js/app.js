@@ -44,6 +44,17 @@ const App = {
       }
     }).catch(() => {});
 
+    // React to auth state changes (sign-in / sign-out)
+    Firebase.onAuthChange(uid => {
+      if (uid) {
+        Firebase.restoreFromCloud().then(count => {
+          if (count > 0) App._toast(`Synced ${count} items from cloud`, 'success');
+        }).catch(() => {});
+      }
+      // Refresh profile screen if visible
+      if (App.state.screen === 'profile') App.navigate('profile');
+    });
+
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').catch(() => {});
     }
@@ -644,17 +655,28 @@ const App = {
       const deltaBF = (latest && prev && latest.bodyFat && prev.bodyFat)
         ? (latest.bodyFat - prev.bodyFat).toFixed(1) : null;
 
+      const fbName  = Firebase.ready ? Firebase.userName : null;
+      const fbPhoto = Firebase.ready ? Firebase.userPhoto : null;
+      const displayName = fbName || name;
+
       return `
       <div class="screen">
 
         <!-- ── Profile header ── -->
         <div class="profile-hero">
-          <div class="profile-avatar-lg">${initial}</div>
+          ${fbPhoto
+            ? `<img src="${fbPhoto}" class="profile-avatar-lg" style="object-fit:cover" referrerpolicy="no-referrer">`
+            : `<div class="profile-avatar-lg">${displayName[0].toUpperCase()}</div>`}
           <div class="profile-info">
-            <div class="profile-name">${name}</div>
+            <div class="profile-name">${displayName}</div>
             <div class="profile-goal">${profile.goal ? App._fmtGoal(profile.goal) : 'No goal set'}</div>
           </div>
-          <button class="btn btn-sm btn-ghost" data-action="open-profile">Edit</button>
+          <div style="display:flex;flex-direction:column;gap:.35rem;align-items:flex-end">
+            <button class="btn btn-sm btn-ghost" data-action="open-profile">Edit</button>
+            ${Firebase.ready
+              ? `<button class="btn btn-sm btn-ghost" style="color:var(--txt3);font-size:.72rem" data-action="google-signout">Sign out</button>`
+              : `<button class="btn btn-sm btn-primary" data-action="google-signin">Sign in</button>`}
+          </div>
         </div>
 
         <div class="stat-grid" style="padding:.5rem 1rem 0">
@@ -733,6 +755,16 @@ const App = {
           <h2>Friends</h2>
         </div>
 
+        ${Firebase.notSignedIn ? `
+        <div style="margin:.25rem 1rem 1rem">
+          <div class="invite-card" style="text-align:center;padding:1.5rem 1rem">
+            <div style="font-size:.9rem;font-weight:600;margin-bottom:.35rem">Sign in to connect with friends</div>
+            <div style="font-size:.8rem;color:var(--txt2);margin-bottom:1rem">Your data syncs across devices and you can share workouts with friends.</div>
+            <button class="btn btn-primary" style="width:auto;padding:.7rem 1.75rem" data-action="google-signin">
+              Sign in with Google
+            </button>
+          </div>
+        </div>` : `
         <div style="margin:.25rem 1rem .5rem">
           <div class="invite-card">
             <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.4px;color:var(--txt3);margin-bottom:.45rem">Your invite link</div>
@@ -747,7 +779,7 @@ const App = {
 
         <div id="friends-list-container">
           <div style="padding:1.25rem 1rem;text-align:center;color:var(--txt3);font-size:.82rem">Loading…</div>
-        </div>
+        </div>`}
 
       </div>`;
     },
@@ -1638,6 +1670,23 @@ const App = {
           await Firebase.removeFriend(el.dataset.uid).catch(() => {});
           this._loadFriendsSection();
         }, 'Remove', true);
+        break;
+
+      case 'google-signin':
+        el.disabled = true;
+        el.textContent = 'Signing in…';
+        Firebase.signIn().catch(() => {
+          el.disabled = false;
+          el.textContent = 'Sign in with Google';
+          App._toast('Sign-in failed. Please try again.', 'error');
+        });
+        break;
+
+      case 'google-signout':
+        this._confirm('Sign out of your Google account?', async () => {
+          await Firebase.signOut().catch(() => {});
+          this.navigate('profile');
+        }, 'Sign out', true);
         break;
     }
   },
