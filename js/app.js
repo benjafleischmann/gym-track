@@ -451,6 +451,9 @@ const App = {
                   <div class="list-item-sub">${ex.sets} × ${ex.reps}${ex.rest ? ` · ${ex.rest}s rest` : ''}</div>
                 </div>
               </div>
+              ${info ? `<a href="https://www.youtube.com/results?search_query=${encodeURIComponent(info.name + ' how to tutorial')}" target="_blank" class="yt-demo-btn" title="Watch demo on YouTube">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+              </a>` : ''}
             </div>`;
           }).join('')}
         </div>` : ''}

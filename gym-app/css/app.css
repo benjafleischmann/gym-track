@@ -275,6 +275,23 @@ a      { color: inherit; text-decoration: none; }
 .badge-custom        { background: var(--bg4); color: var(--txt2); }
 .badge-boxing        { background: rgba(255,69,58,.15); color: var(--red); }
 .badge-fitness_class { background: rgba(191,90,242,.15); color: #bf5af2; }
+.badge-hiit          { background: rgba(0,212,255,.15);  color: #00d4ff; }
+/* ─── YouTube demo button ──────────────────────────────────────────────────── */
+.yt-demo-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(255,59,48,.15);
+  color: #ff3b30;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .15s;
+}
+.yt-demo-btn:active { background: rgba(255,59,48,.3); }
+.badge-mobility      { background: rgba(52,199,89,.15);  color: #34c759; }
 
 /* ─── Routine card ─────────────────────────────────────────────────────────── */
 .routine-card {

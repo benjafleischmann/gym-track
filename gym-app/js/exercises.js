@@ -108,6 +108,33 @@ const EXERCISES = [
   { id: 'elliptical',       name: 'Elliptical',              category: 'cardio',     type: 'cardio',      muscles: ['Legs','Cardiovascular'],       measureType: 'time' },
   { id: 'hiit-sprint',      name: 'Sprint Intervals',        category: 'cardio',     type: 'cardio',      muscles: ['Legs','Cardiovascular'] },
   { id: 'jump-rope',        name: 'Jump Rope',               category: 'cardio',     type: 'bodyweight',  muscles: ['Calves','Cardiovascular'],     measureType: 'time' },
+  // HIIT
+  { id: 'mountain-climbers',  name: 'Mountain Climbers',     category: 'hiit',     type: 'bodyweight',  muscles: ['Core','Hip Flexors','Shoulders'] },
+  { id: 'jump-squat',         name: 'Jump Squat',            category: 'hiit',     type: 'bodyweight',  muscles: ['Quads','Glutes','Calves'] },
+  { id: 'high-knees',         name: 'High Knees',            category: 'hiit',     type: 'bodyweight',  muscles: ['Hip Flexors','Cardiovascular'] },
+  { id: 'battle-ropes',       name: 'Battle Ropes',          category: 'hiit',     type: 'other',       muscles: ['Shoulders','Arms','Core'],        measureType: 'time' },
+  { id: 'db-thruster',        name: 'DB Thruster',           category: 'hiit',     type: 'dumbbell',    muscles: ['Quads','Shoulders','Triceps'] },
+  { id: 'db-renegade-row',    name: 'Renegade Row',          category: 'hiit',     type: 'dumbbell',    muscles: ['Back','Core','Biceps'] },
+  { id: 'db-reverse-lunge',   name: 'DB Reverse Lunge',      category: 'hiit',     type: 'dumbbell',    muscles: ['Quads','Glutes','Hamstrings'] },
+  { id: 'step-ups',           name: 'Step-Ups',              category: 'hiit',     type: 'dumbbell',    muscles: ['Quads','Glutes'] },
+  { id: 'kb-clean-press',     name: 'KB Clean & Press',      category: 'hiit',     type: 'kettlebell',  muscles: ['Full Body'] },
+  { id: 'kb-snatch',          name: 'KB Snatch',             category: 'hiit',     type: 'kettlebell',  muscles: ['Full Body'] },
+  { id: 'broad-jump',         name: 'Broad Jump',            category: 'hiit',     type: 'bodyweight',  muscles: ['Quads','Glutes','Calves'] },
+  { id: 'shuttle-run',        name: 'Shuttle Run',           category: 'hiit',     type: 'bodyweight',  muscles: ['Legs','Cardiovascular'] },
+  { id: 'bear-crawl',         name: 'Bear Crawl',            category: 'hiit',     type: 'bodyweight',  muscles: ['Core','Shoulders','Legs'] },
+  // MOBILITY / KNEE WARM-UP
+  { id: 'leg-swing',          name: 'Leg Swings',            category: 'mobility', type: 'bodyweight',  muscles: ['Hip Flexors','Hamstrings'],       measureType: 'time' },
+  { id: 'clamshell',          name: 'Clamshell',             category: 'mobility', type: 'bodyweight',  muscles: ['Glutes','Hip Abductors'] },
+  { id: 'glute-bridge-bw',    name: 'Glute Bridge',          category: 'mobility', type: 'bodyweight',  muscles: ['Glutes','Hamstrings'] },
+  { id: 'straight-leg-raise', name: 'Straight Leg Raise',    category: 'mobility', type: 'bodyweight',  muscles: ['Quads','Hip Flexors'] },
+  { id: 'tke',                name: 'Terminal Knee Extension',category: 'mobility', type: 'other',       muscles: ['Quads','VMO'] },
+  { id: 'short-arc-quad',     name: 'Short Arc Quad',        category: 'mobility', type: 'bodyweight',  muscles: ['Quads','VMO'] },
+  { id: 'side-leg-raise',     name: 'Side-Lying Leg Raise',  category: 'mobility', type: 'bodyweight',  muscles: ['Glutes','Hip Abductors'] },
+  { id: 'ankle-circles',      name: 'Ankle Circles',         category: 'mobility', type: 'bodyweight',  muscles: ['Ankles','Calves'],               measureType: 'time' },
+  { id: 'quad-stretch',       name: 'Standing Quad Stretch', category: 'mobility', type: 'bodyweight',  muscles: ['Quads'],                         measureType: 'time' },
+  { id: 'hamstring-stretch',  name: 'Supine Hamstring Stretch', category: 'mobility', type: 'bodyweight', muscles: ['Hamstrings'],                  measureType: 'time' },
+  { id: 'hip-circle',         name: 'Hip Circles',           category: 'mobility', type: 'bodyweight',  muscles: ['Hips','Glutes'],                 measureType: 'time' },
+  { id: 'wall-sit',           name: 'Wall Sit',              category: 'mobility', type: 'bodyweight',  muscles: ['Quads','Glutes'],                measureType: 'time' },
 ];
 
 const EXERCISE_CATEGORIES = {
@@ -122,6 +149,8 @@ const EXERCISE_CATEGORIES = {
   cardio:       { name: 'Cardio',                icon: 'cardio' },
   boxing:       { name: 'Boxing & Martial Arts', icon: 'boxing' },
   fitness_class:{ name: 'Fitness Classes',       icon: 'fitness_class' },
+  hiit:         { name: 'HIIT',                  icon: 'hiit' },
+  mobility:     { name: 'Mobility & Warm-Up',    icon: 'mobility' },
 };
 
 // ─── Routine Templates ────────────────────────────────────────────────────────
@@ -468,7 +497,238 @@ const ROUTINE_TEMPLATES = [
         exercises: [{ exerciseId: 'running', sets: 1, reps: '10km', rest: 0 }]
       }
     ]
-  }
+  },
+  // ── HIIT ─────────────────────────────────────────────────────────────────────
+  {
+    id: 'tpl-tabata',
+    name: 'Tabata Full Body',
+    type: 'hiit',
+    goal: 'fat_loss',
+    daysPerWeek: 3,
+    description: '8 rounds × 20s on / 10s off per exercise. ~48 min. Rest 60s between exercises.',
+    days: [
+      {
+        id: 'day-1', name: 'Tabata A — Lower + Core',
+        exercises: [
+          { exerciseId: 'jump-squat',         sets: 8, reps: '20s', rest: 10 },
+          { exerciseId: 'mountain-climbers',   sets: 8, reps: '20s', rest: 10 },
+          { exerciseId: 'kb-swing',            sets: 8, reps: '20s', rest: 10 },
+          { exerciseId: 'burpees',             sets: 8, reps: '20s', rest: 10 },
+          { exerciseId: 'high-knees',          sets: 8, reps: '20s', rest: 10 },
+          { exerciseId: 'plank',               sets: 8, reps: '20s', rest: 10 },
+        ]
+      },
+      {
+        id: 'day-2', name: 'Tabata B — Upper + Full Body',
+        exercises: [
+          { exerciseId: 'pushup',              sets: 8, reps: '20s', rest: 10 },
+          { exerciseId: 'db-thruster',         sets: 8, reps: '20s', rest: 10 },
+          { exerciseId: 'db-renegade-row',     sets: 8, reps: '20s', rest: 10 },
+          { exerciseId: 'burpees',             sets: 8, reps: '20s', rest: 10 },
+          { exerciseId: 'battle-ropes',        sets: 8, reps: '20s', rest: 10 },
+          { exerciseId: 'mountain-climbers',   sets: 8, reps: '20s', rest: 10 },
+        ]
+      }
+    ]
+  },
+  {
+    id: 'tpl-amrap',
+    name: 'AMRAP Gauntlet',
+    type: 'hiit',
+    goal: 'fat_loss',
+    daysPerWeek: 3,
+    description: '3 × 12-min AMRAP blocks. Do as many rounds as possible each block. 3 min rest between blocks. ~54 min.',
+    days: [
+      {
+        id: 'day-1', name: 'Block A — Lower (AMRAP 12)',
+        exercises: [
+          { exerciseId: 'squat',       sets: 5, reps: '10', rest: 0 },
+          { exerciseId: 'jump-squat',  sets: 5, reps: '10', rest: 0 },
+          { exerciseId: 'db-reverse-lunge', sets: 5, reps: '12', rest: 0 },
+          { exerciseId: 'kb-swing',    sets: 5, reps: '15', rest: 180 },
+        ]
+      },
+      {
+        id: 'day-2', name: 'Block B — Upper (AMRAP 12)',
+        exercises: [
+          { exerciseId: 'pushup',      sets: 5, reps: '15', rest: 0 },
+          { exerciseId: 'db-row',      sets: 5, reps: '10', rest: 0 },
+          { exerciseId: 'db-thruster', sets: 5, reps: '10', rest: 0 },
+          { exerciseId: 'dips',        sets: 5, reps: '12', rest: 180 },
+        ]
+      },
+      {
+        id: 'day-3', name: 'Block C — Full Body (AMRAP 12)',
+        exercises: [
+          { exerciseId: 'burpees',           sets: 5, reps: '10', rest: 0 },
+          { exerciseId: 'mountain-climbers', sets: 5, reps: '20', rest: 0 },
+          { exerciseId: 'kb-swing',          sets: 5, reps: '15', rest: 0 },
+          { exerciseId: 'box-jumps',         sets: 5, reps: '10', rest: 0 },
+        ]
+      }
+    ]
+  },
+  {
+    id: 'tpl-db-circuit',
+    name: 'Dumbbell HIIT Circuit',
+    type: 'hiit',
+    goal: 'fat_loss',
+    daysPerWeek: 3,
+    description: '4 rounds of 6 exercises. 40s work / 20s rest. 90s rest between rounds. ~50 min.',
+    days: [
+      {
+        id: 'day-1', name: 'DB Circuit A',
+        exercises: [
+          { exerciseId: 'db-thruster',      sets: 4, reps: '40s', rest: 20 },
+          { exerciseId: 'db-renegade-row',  sets: 4, reps: '40s', rest: 20 },
+          { exerciseId: 'db-reverse-lunge', sets: 4, reps: '40s', rest: 20 },
+          { exerciseId: 'db-bench',         sets: 4, reps: '40s', rest: 20 },
+          { exerciseId: 'db-curl',          sets: 4, reps: '40s', rest: 20 },
+          { exerciseId: 'mountain-climbers',sets: 4, reps: '40s', rest: 90 },
+        ]
+      },
+      {
+        id: 'day-2', name: 'DB Circuit B',
+        exercises: [
+          { exerciseId: 'db-shoulder-press',sets: 4, reps: '40s', rest: 20 },
+          { exerciseId: 'db-row',           sets: 4, reps: '40s', rest: 20 },
+          { exerciseId: 'bulgarian-split',  sets: 4, reps: '40s', rest: 20 },
+          { exerciseId: 'db-fly',           sets: 4, reps: '40s', rest: 20 },
+          { exerciseId: 'hammer-curl',      sets: 4, reps: '40s', rest: 20 },
+          { exerciseId: 'high-knees',       sets: 4, reps: '40s', rest: 90 },
+        ]
+      }
+    ]
+  },
+  {
+    id: 'tpl-kb-flow',
+    name: 'Kettlebell Flow',
+    type: 'hiit',
+    goal: 'fat_loss',
+    daysPerWeek: 3,
+    description: '4–5 rounds of kettlebell exercises with short rests. ~45 min.',
+    days: [
+      {
+        id: 'day-1', name: 'KB Power Flow',
+        exercises: [
+          { exerciseId: 'kb-swing',      sets: 4, reps: '20', rest: 30 },
+          { exerciseId: 'kb-goblet-squat',sets: 4, reps: '15', rest: 30 },
+          { exerciseId: 'kb-clean-press', sets: 4, reps: '10', rest: 30 },
+          { exerciseId: 'kb-snatch',      sets: 4, reps: '8',  rest: 30 },
+          { exerciseId: 'burpees',        sets: 4, reps: '10', rest: 90 },
+        ]
+      },
+      {
+        id: 'day-2', name: 'KB Endurance Flow',
+        exercises: [
+          { exerciseId: 'kb-swing',         sets: 5, reps: '30', rest: 20 },
+          { exerciseId: 'kb-goblet-squat',  sets: 5, reps: '20', rest: 20 },
+          { exerciseId: 'kb-clean-press',   sets: 5, reps: '12', rest: 20 },
+          { exerciseId: 'mountain-climbers',sets: 5, reps: '20', rest: 60 },
+        ]
+      }
+    ]
+  },
+  {
+    id: 'tpl-interval-strength',
+    name: 'Interval Strength',
+    type: 'hiit',
+    goal: 'fat_loss',
+    daysPerWeek: 3,
+    description: 'Alternate sprint intervals with strength blocks. ~60 min.',
+    days: [
+      {
+        id: 'day-1', name: 'Run + Push / Pull',
+        exercises: [
+          { exerciseId: 'hiit-sprint', sets: 1, reps: '400m',  rest: 90 },
+          { exerciseId: 'pushup',      sets: 3, reps: '15',     rest: 0 },
+          { exerciseId: 'db-row',      sets: 3, reps: '12',     rest: 60 },
+          { exerciseId: 'hiit-sprint', sets: 1, reps: '400m',  rest: 90 },
+          { exerciseId: 'db-thruster', sets: 3, reps: '12',     rest: 0 },
+          { exerciseId: 'pullup',      sets: 3, reps: '8',      rest: 60 },
+          { exerciseId: 'hiit-sprint', sets: 1, reps: '400m',  rest: 90 },
+          { exerciseId: 'burpees',     sets: 3, reps: '12',     rest: 60 },
+          { exerciseId: 'hiit-sprint', sets: 1, reps: '400m',  rest: 90 },
+          { exerciseId: 'plank',       sets: 3, reps: '45s',    rest: 30 },
+        ]
+      },
+      {
+        id: 'day-2', name: 'Run + Legs / Core',
+        exercises: [
+          { exerciseId: 'hiit-sprint',       sets: 1, reps: '400m', rest: 90 },
+          { exerciseId: 'squat',             sets: 3, reps: '15',   rest: 0 },
+          { exerciseId: 'kb-swing',          sets: 3, reps: '15',   rest: 60 },
+          { exerciseId: 'hiit-sprint',       sets: 1, reps: '400m', rest: 90 },
+          { exerciseId: 'mountain-climbers', sets: 3, reps: '20',   rest: 0 },
+          { exerciseId: 'ab-wheel',          sets: 3, reps: '10',   rest: 60 },
+          { exerciseId: 'hiit-sprint',       sets: 1, reps: '400m', rest: 90 },
+          { exerciseId: 'battle-ropes',      sets: 3, reps: '30s',  rest: 60 },
+          { exerciseId: 'plank',             sets: 3, reps: '45s',  rest: 30 },
+        ]
+      }
+    ]
+  },
+  {
+    id: 'tpl-partner-wod',
+    name: 'Partner Power Hour',
+    type: 'hiit',
+    goal: 'fat_loss',
+    daysPerWeek: 2,
+    description: 'Alternate sets with your partner — one works while the other rests. ~60 min.',
+    days: [
+      {
+        id: 'day-1', name: 'Partner WOD A — Push / Pull',
+        exercises: [
+          { exerciseId: 'battle-ropes',      sets: 6, reps: '30s', rest: 30 },
+          { exerciseId: 'burpee-broad-jump', sets: 6, reps: '10',  rest: 30 },
+          { exerciseId: 'db-thruster',       sets: 6, reps: '10',  rest: 30 },
+          { exerciseId: 'pullup',            sets: 6, reps: '8',   rest: 30 },
+          { exerciseId: 'kb-swing',          sets: 6, reps: '15',  rest: 30 },
+          { exerciseId: 'box-jumps',         sets: 6, reps: '10',  rest: 30 },
+        ]
+      },
+      {
+        id: 'day-2', name: 'Partner WOD B — Full Body Grind',
+        exercises: [
+          { exerciseId: 'squat',             sets: 6, reps: '15',  rest: 30 },
+          { exerciseId: 'pushup',            sets: 6, reps: '15',  rest: 30 },
+          { exerciseId: 'mountain-climbers', sets: 6, reps: '20',  rest: 30 },
+          { exerciseId: 'db-row',            sets: 6, reps: '12',  rest: 30 },
+          { exerciseId: 'jump-squat',        sets: 6, reps: '10',  rest: 30 },
+          { exerciseId: 'burpees',           sets: 6, reps: '10',  rest: 30 },
+        ]
+      }
+    ]
+  },
+  // ── Mobility / Knee Warm-Up ───────────────────────────────────────────────────
+  {
+    id: 'tpl-knee-warmup',
+    name: 'Knee Warm-Up',
+    type: 'mobility',
+    goal: 'health',
+    daysPerWeek: 7,
+    description: 'Low-impact knee prep routine for post-ACL recovery. Activates glutes, VMO and hip stabilisers before any workout. No impact, no pivoting.',
+    days: [
+      {
+        id: 'day-1', name: 'Knee Activation & Mobility',
+        exercises: [
+          { exerciseId: 'ankle-circles',      sets: 2, reps: '30s', rest: 15 },
+          { exerciseId: 'leg-swing',          sets: 2, reps: '30s', rest: 15 },
+          { exerciseId: 'hip-circle',         sets: 2, reps: '30s', rest: 15 },
+          { exerciseId: 'glute-bridge-bw',    sets: 3, reps: '15',  rest: 30 },
+          { exerciseId: 'clamshell',          sets: 3, reps: '15',  rest: 30 },
+          { exerciseId: 'side-leg-raise',     sets: 3, reps: '15',  rest: 30 },
+          { exerciseId: 'straight-leg-raise', sets: 3, reps: '15',  rest: 30 },
+          { exerciseId: 'short-arc-quad',     sets: 3, reps: '15',  rest: 30 },
+          { exerciseId: 'tke',                sets: 3, reps: '15',  rest: 30 },
+          { exerciseId: 'calf-raise',         sets: 3, reps: '20',  rest: 30 },
+          { exerciseId: 'wall-sit',           sets: 3, reps: '30s', rest: 45 },
+          { exerciseId: 'hamstring-stretch',  sets: 2, reps: '45s', rest: 15 },
+          { exerciseId: 'quad-stretch',       sets: 2, reps: '45s', rest: 15 },
+        ]
+      }
+    ]
+  },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
