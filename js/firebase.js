@@ -57,7 +57,7 @@
         db   = getFirestore(app);
 
         // Handle redirect result (after Google sign-in redirect)
-        await getRedirectResult(auth).catch(() => {});
+        await getRedirectResult(auth).catch(e => console.warn('[Firebase] redirect result:', e));
 
         return new Promise(resolve => {
           onAuthStateChanged(auth, async user => {
@@ -110,13 +110,30 @@
 
     // ── Auth ─────────────────────────────────────────────────────────────────
     async signIn() {
-      if (!auth || !_GoogleAuthProvider) return;
+      if (!auth || !_GoogleAuthProvider) throw new Error('Firebase not ready');
       const provider = new _GoogleAuthProvider();
+
+      // Popups never settle on iOS browsers (WKWebView loses the opener
+      // channel) and are blocked outright in an installed PWA, so skip
+      // straight to redirect there instead of hanging forever.
+      const standalone = window.matchMedia('(display-mode: standalone)').matches
+                      || window.navigator.standalone === true;
+      const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+               || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+      if (standalone || iOS) {
+        await _signInWithRedirect(auth, provider);
+        return;
+      }
+
       try {
         await _signInWithPopup(auth, provider);
-      } catch {
-        // Popup blocked (standalone PWA) — fall back to redirect
-        await _signInWithRedirect(auth, provider).catch(console.warn);
+      } catch (e) {
+        if (e && (e.code === 'auth/popup-blocked' || e.code === 'auth/cancelled-popup-request')) {
+          await _signInWithRedirect(auth, provider);
+          return;
+        }
+        throw e;
       }
     },
 

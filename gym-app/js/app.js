@@ -1717,10 +1717,10 @@ const App = {
         const origText = el.textContent.trim();
         el.disabled = true;
         el.textContent = 'Signing in…';
-        Firebase.signIn().catch(() => {
+        Firebase.signIn().catch(err => {
           el.disabled = false;
           el.textContent = origText;
-          App._toast('Sign-in failed. Please try again.', 'error');
+          App._toast(`Sign-in failed: ${err?.code || err?.message || 'unknown error'}`, 'error');
         });
         break;
       }

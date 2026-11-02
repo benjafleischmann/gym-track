@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gymtrack-v8';
+const CACHE_NAME = 'gymtrack-v9';
 const ASSETS = [
   './',
   './index.html',
@@ -8,6 +8,8 @@ const ASSETS = [
   './js/exercises.js',
   './js/firebase.js',
   './js/app.js',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
   'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js'
 ];
 
