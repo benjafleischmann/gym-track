@@ -377,9 +377,14 @@ a      { color: inherit; text-decoration: none; }
 }
 
 .sets-table { width: 100%; }
+/* minmax(0,1fr), not 1fr: a bare `1fr` floors each track at the min-content
+   width of its contents, and an <input>'s min-content width is its intrinsic
+   ~20-character size regardless of `width:100%`. Two of those plus the fixed
+   columns overflow a phone viewport, which is what let the whole page pan
+   sideways on iOS (WebKit ignores overflow-x:hidden on the root for touch). */
 .sets-header, .set-row {
   display: grid;
-  grid-template-columns: 32px 1fr 1fr 44px;
+  grid-template-columns: 32px minmax(0, 1fr) minmax(0, 1fr) 44px;
   gap: .4rem;
   align-items: center;
   padding: .5rem 1rem;
@@ -408,6 +413,7 @@ a      { color: inherit; text-decoration: none; }
   font-weight: 600;
   border: 1px solid transparent;
   width: 100%;
+  min-width: 0;
 }
 .set-input:focus { border-color: var(--accent); }
 .set-input::placeholder { color: var(--txt3); font-weight: 400; }
@@ -452,13 +458,14 @@ a      { color: inherit; text-decoration: none; }
 }
 .activity-fields {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: .4rem;
 }
 .activity-field {
   display: flex;
   flex-direction: column;
   gap: .2rem;
+  min-width: 0;
 }
 .activity-lbl {
   font-size: .62rem;
@@ -551,7 +558,9 @@ a      { color: inherit; text-decoration: none; }
 }
 .chart-card-title { font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--txt2); }
 .chart-card-value { font-size: 1.2rem; font-weight: 700; color: var(--txt); }
-canvas { display: block; }
+/* max-width guards the gap between a canvas being inserted at its default
+   300px attribute width and Chart.js resizing it on the next frame. */
+canvas { display: block; max-width: 100%; }
 
 /* ─── Tabs ─────────────────────────────────────────────────────────────────── */
 .tab-bar {
@@ -710,6 +719,7 @@ canvas { display: block; }
 }
 .form-input {
   width: 100%;
+  min-width: 0;
   background: var(--bg3);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -722,6 +732,7 @@ canvas { display: block; }
 .form-input::placeholder { color: var(--txt3); }
 .form-select {
   width: 100%;
+  min-width: 0;
   background: var(--bg3);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -732,7 +743,7 @@ canvas { display: block; }
   -webkit-appearance: none;
 }
 .form-row { display: flex; gap: .5rem; }
-.form-row .form-group { flex: 1; padding: .6rem 0; }
+.form-row .form-group { flex: 1; min-width: 0; padding: .6rem 0; }
 .form-row .form-group:first-child { padding-left: 1rem; }
 .form-row .form-group:last-child  { padding-right: 1rem; }
 
@@ -915,6 +926,10 @@ canvas { display: block; }
   display: flex;
   gap: .5rem;
   padding: .5rem 1rem;
+  /* As a flex item of the column-flex .bottom-sheet this row is also a scroll
+     container, so its automatic minimum size is 0 and the sheet body squashes
+     it to a sliver. Pin it to its content height. */
+  flex-shrink: 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
