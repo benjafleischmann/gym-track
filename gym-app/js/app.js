@@ -606,47 +606,56 @@ const App = {
       const w = DB.getWorkout(workoutId);
       if (!w) return App.screens.history();
 
-      // For past activity workouts duration may be 0; fall back to sum of set durations
-      let durationSecs = (new Date(w.completedAt||w.startedAt) - new Date(w.startedAt)) / 1000;
-      if (durationSecs < 60) {
-        const activityMins = w.exercises.flatMap(e => e.sets)
-          .filter(s => s.duration).reduce((sum, s) => sum + parseFloat(s.duration||0), 0);
-        if (activityMins > 0) durationSecs = activityMins * 60;
-      }
-      const duration = App._fmtDuration(durationSecs);
+      const durationSecs = App._workoutDuration(w);
+      const duration = durationSecs ? App._fmtDuration(durationSecs) : '—';
       const totalVol = DB.calcTotalVolume([w]);
 
       const exBlocks = w.exercises.map(ex => {
-        const isActivity = ex.sets.length > 0 && ex.sets[0].duration !== undefined;
-        const tableHead = isActivity
+        // Older workouts predate `measureType` being stored on the exercise, so
+        // fall back to the shape of the logged sets.
+        const first = ex.sets[0];
+        const mt = ex.measureType
+          || (first?.distance !== undefined ? 'distance'
+              : first?.duration !== undefined ? 'activity' : null);
+        const isCardio = App._isCardio(mt);
+        const cols = isCardio ? App._setFields(mt) : null;
+        const tableHead = isCardio
           ? `<td style="padding:.4rem 1rem">#</td>
-             <td style="padding:.4rem .5rem">Duration</td>
-             <td style="padding:.4rem .5rem">Avg HR</td>
-             <td style="padding:.4rem .5rem">Max HR</td>
-             <td style="padding:.4rem 1rem .4rem .5rem">Kcal</td>`
+             ${cols.map(f => `<td style="padding:.4rem .5rem">${f.label}</td>`).join('')}`
           : `<td style="padding:.4rem 1rem">Set</td>
              <td style="padding:.4rem .5rem">Weight</td>
              <td style="padding:.4rem .5rem">Reps</td>
              <td style="padding:.4rem 1rem .4rem .5rem">Done</td>`;
         const rows = ex.sets.map(s => {
-          const cells = isActivity
+          const cells = isCardio
             ? `<td style="padding:.4rem 1rem;font-size:.8rem;color:var(--txt3)">${s.setNumber}</td>
-               <td style="padding:.4rem .5rem;font-weight:600">${s.duration ? s.duration + ' min' : '—'}</td>
-               <td style="padding:.4rem .5rem;font-weight:600">${s.avgHr ? s.avgHr + ' bpm' : '—'}</td>
-               <td style="padding:.4rem .5rem;font-weight:600">${s.maxHr ? s.maxHr + ' bpm' : '—'}</td>
-               <td style="padding:.4rem 1rem .4rem .5rem;font-weight:600">${s.calories ? s.calories + ' kcal' : '—'}</td>`
+               ${cols.map(f => `<td style="padding:.4rem .5rem;font-weight:600">${s[f.key] ? s[f.key] + ' ' + f.unit : '—'}</td>`).join('')}`
             : `<td style="padding:.4rem 1rem;font-size:.8rem;color:var(--txt3)">${s.setNumber}</td>
                <td style="padding:.4rem .5rem;font-weight:600">${s.weight||'—'} kg</td>
                <td style="padding:.4rem .5rem;font-weight:600">${s.reps||'—'}</td>
                <td style="padding:.4rem 1rem .4rem .5rem">${s.completed ? '✓' : '—'}</td>`;
           return `<tr style="border-top:1px solid var(--border);${s.completed?'':'opacity:.4'}">${cells}</tr>`;
         }).join('');
+
+        const totalKm = mt === 'distance'
+          ? ex.sets.reduce((sum, s) => sum + (parseFloat(s.distance) || 0), 0)
+          : 0;
+        const totalMin = mt === 'distance'
+          ? ex.sets.reduce((sum, s) => sum + (parseFloat(s.duration) || 0), 0)
+          : 0;
+        const summary = totalKm
+          ? `<div class="exercise-block-sub" style="padding:0 1rem .5rem">
+               ${totalKm.toFixed(2)} km${App._pace({ distance: totalKm, duration: totalMin })
+                 ? ` · ${App._pace({ distance: totalKm, duration: totalMin })}` : ''}
+             </div>`
+          : '';
         return `
           <div style="margin:.5rem 1rem 0">
             <div class="exercise-block">
               <div class="exercise-block-header">
                 <div><div class="exercise-block-name">${ex.exerciseName}</div></div>
               </div>
+              ${summary}
               <table style="width:100%;border-collapse:collapse">
                 <thead>
                   <tr style="font-size:.7rem;text-transform:uppercase;letter-spacing:.4px;color:var(--txt3)">${tableHead}</tr>
@@ -895,7 +904,7 @@ const App = {
     logPastWorkout() {
       const draft = App.state.pastWorkoutDraft;
       if (!draft) return App.screens.history();
-      const maxDate = new Date().toISOString().slice(0, 16);
+      const maxDate = new Date().toISOString().slice(0, 10);
       const isEdit = !!draft.editId;
 
       return `
@@ -907,9 +916,15 @@ const App = {
         </div>
 
         <div class="form-group">
-          <label class="form-label">Date & Time</label>
-          <input type="datetime-local" class="form-input" id="past-date"
+          <label class="form-label">Date</label>
+          <input type="date" class="form-input" id="past-date"
                  value="${draft.date}" max="${maxDate}">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Time spent (optional)</label>
+          <input type="number" class="form-input" id="past-duration" inputmode="numeric"
+                 min="0" placeholder="minutes" value="${draft.durationMin || ''}">
         </div>
 
         <div class="form-group">
@@ -1044,21 +1059,22 @@ const App = {
       const day = routine ? routine.days[dayIndex || 0] : null;
       const exercises = day ? day.exercises.map(ex => {
         const info        = getExercise(ex.exerciseId);
-        const isActivity  = info?.measureType === 'activity';
-        const suggestion  = !isActivity ? DB.getProgressionSuggestion(ex.exerciseId, routineId, day.id) : null;
+        const mt          = info?.measureType || null;
+        const isCardio    = App._isCardio(mt);
+        const suggestion  = !isCardio ? DB.getProgressionSuggestion(ex.exerciseId, routineId, day.id) : null;
         const targetWeight = suggestion ? suggestion.weight : null;
 
         return {
           exerciseId:   ex.exerciseId,
           exerciseName: info ? info.name : ex.exerciseId,
-          measureType:  info?.measureType || null,
-          targetReps:   isActivity ? '1 session' : ex.reps,
+          measureType:  mt,
+          targetReps:   mt === 'activity' ? '1 session' : ex.reps,
           targetSets:   ex.sets,
-          restSeconds:  isActivity ? 0 : (ex.rest || 90),
+          restSeconds:  isCardio ? 0 : (ex.rest || 90),
           suggestion:   suggestion ? suggestion.message : null,
           sets: Array.from({ length: ex.sets }, (_, i) => {
-            const s = App._blankSet(i + 1, isActivity);
-            if (!isActivity) { s.weight = targetWeight || null; s.reps = parseInt(ex.reps) || null; }
+            const s = App._blankSet(i + 1, mt);
+            if (!isCardio) { s.weight = targetWeight || null; s.reps = parseInt(ex.reps) || null; }
             return s;
           })
         };
@@ -1080,16 +1096,17 @@ const App = {
     addExercise(exerciseId) {
       const info = getExercise(exerciseId);
       if (!info || !App.state.activeWorkout) return;
-      const isActivity = info.measureType === 'activity';
+      const mt = info.measureType || null;
+      const isCardio = App._isCardio(mt);
       App.state.activeWorkout.exercises.push({
         exerciseId,
         exerciseName: info.name,
-        measureType:  info.measureType || null,
-        targetReps:   isActivity ? '1 session' : '10',
-        targetSets:   isActivity ? 1 : 3,
-        restSeconds:  isActivity ? 0 : 90,
+        measureType:  mt,
+        targetReps:   isCardio ? '1 session' : '10',
+        targetSets:   isCardio ? 1 : 3,
+        restSeconds:  isCardio ? 0 : 90,
         suggestion:   null,
-        sets: [App._blankSet(1, isActivity)]
+        sets: [App._blankSet(1, mt)]
       });
       DB.saveActiveWorkout(App.state.activeWorkout);
       App._render();
@@ -1098,11 +1115,10 @@ const App = {
     addSet(exerciseIndex) {
       const ex = App.state.activeWorkout.exercises[exerciseIndex];
       if (!ex) return;
-      const isActivity = ex.measureType === 'activity';
+      const isCardio = App._isCardio(ex.measureType);
       const last = ex.sets[ex.sets.length - 1];
-      const next = App._blankSet(ex.sets.length + 1, isActivity);
-      if (!isActivity && last) { next.weight = last.weight; next.reps = last.reps; }
-      if (isActivity && last)  { next.duration = last.duration; }
+      const next = App._blankSet(ex.sets.length + 1, ex.measureType);
+      if (!isCardio && last) { next.weight = last.weight; next.reps = last.reps; }
       ex.sets.push(next);
       DB.saveActiveWorkout(App.state.activeWorkout);
       App._render();
@@ -1612,12 +1628,16 @@ const App = {
       case 'edit-workout': {
         const wEdit = DB.getWorkout(el.dataset.id);
         if (!wEdit) break;
+        const loggedMin = Math.round(
+          (new Date(wEdit.completedAt || wEdit.startedAt) - new Date(wEdit.startedAt)) / 60000
+        );
         App.state.pastWorkoutDraft = {
-          editId:    wEdit.id,
-          date:      wEdit.startedAt.slice(0, 16),
-          name:      wEdit.name,
-          exercises: JSON.parse(JSON.stringify(wEdit.exercises)),
-          notes:     wEdit.notes || ''
+          editId:      wEdit.id,
+          date:        wEdit.startedAt.slice(0, 10),
+          durationMin: loggedMin > 0 ? String(loggedMin) : '',
+          name:        wEdit.name,
+          exercises:   JSON.parse(JSON.stringify(wEdit.exercises)),
+          notes:       wEdit.notes || ''
         };
         this.navigate('log-past-workout');
         break;
@@ -1636,7 +1656,8 @@ const App = {
         const now = new Date();
         now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
         App.state.pastWorkoutDraft = {
-          date: now.toISOString().slice(0, 16),
+          date: now.toISOString().slice(0, 10),
+          durationMin: '',
           name: '',
           exercises: [],
           notes: ''
@@ -1648,8 +1669,7 @@ const App = {
         this._showExercisePicker(exerciseId => {
           const info = getExercise(exerciseId);
           if (!info || !App.state.pastWorkoutDraft) return;
-          const isActivity = info.measureType === 'activity';
-          const s = App._blankSet(1, isActivity);
+          const s = App._blankSet(1, info.measureType);
           s.completed = true;
           App.state.pastWorkoutDraft.exercises.push({
             exerciseId,
@@ -1664,11 +1684,11 @@ const App = {
         const draft = App.state.pastWorkoutDraft;
         const ex = draft?.exercises[parseInt(el.dataset.ei)];
         if (!ex) break;
-        const isActivity = ex.measureType === 'activity';
+        const isCardio = App._isCardio(ex.measureType);
         const last = ex.sets[ex.sets.length - 1];
-        const next = App._blankSet(ex.sets.length + 1, isActivity);
+        const next = App._blankSet(ex.sets.length + 1, ex.measureType);
         next.completed = true;
-        if (!isActivity && last) { next.weight = last.weight; next.reps = last.reps; }
+        if (!isCardio && last) { next.weight = last.weight; next.reps = last.reps; }
         ex.sets.push(next);
         App._render();
         break;
@@ -1775,13 +1795,13 @@ const App = {
   _handleInput(e) {
     const el = e.target;
 
-    // Set weight/reps (active or past workout)
+    // Set fields (active or past workout). The indices live on the input itself
+    // so this works for both the weight/reps rows and the cardio field grid.
     if (el.classList.contains('set-input')) {
-      const row  = el.closest('.set-row');
-      if (!row) return;
-      const ei   = parseInt(row.dataset.ei);
-      const si   = parseInt(row.dataset.si);
+      const ei    = parseInt(el.dataset.ei);
+      const si    = parseInt(el.dataset.si);
       const field = el.dataset.field;
+      if (Number.isNaN(ei) || Number.isNaN(si) || !field) return;
       if (el.dataset.past) {
         const s = App.state.pastWorkoutDraft?.exercises[ei]?.sets[si];
         if (s) s[field] = parseFloat(el.value) || null;
@@ -2106,19 +2126,26 @@ const App = {
 
     // Sync form fields
     const dateEl  = document.getElementById('past-date');
+    const durEl   = document.getElementById('past-duration');
     const nameEl  = document.getElementById('past-name');
     const notesEl = document.getElementById('past-notes');
-    if (dateEl)  draft.date  = dateEl.value;
-    if (nameEl)  draft.name  = nameEl.value.trim();
-    if (notesEl) draft.notes = notesEl.value;
+    if (dateEl)  draft.date        = dateEl.value;
+    if (durEl)   draft.durationMin = durEl.value;
+    if (nameEl)  draft.name        = nameEl.value.trim();
+    if (notesEl) draft.notes       = notesEl.value;
 
     if (!draft.exercises.length) {
       this._toast('Add at least one exercise', 'error');
       return;
     }
 
-    const startedAt   = new Date(draft.date).toISOString();
-    const completedAt = startedAt; // duration unknown for past workouts
+    // The form only asks for a date, so anchor it at local midday — parsing a
+    // bare 'YYYY-MM-DD' as UTC would shift the workout a day in some timezones.
+    const start = new Date(`${draft.date}T12:00`);
+    const startedAt = start.toISOString();
+    // Duration comes from what the user typed; never inferred from the clock.
+    const mins = parseFloat(draft.durationMin) || 0;
+    const completedAt = new Date(start.getTime() + mins * 60000).toISOString();
 
     const isEdit = !!draft.editId;
     const existing = isEdit ? DB.getWorkout(draft.editId) : null;
@@ -2129,7 +2156,7 @@ const App = {
       routineId:   existing?.routineId   || null,
       routineDayId:existing?.routineDayId|| null,
       startedAt,
-      completedAt: isEdit ? (existing?.completedAt || completedAt) : completedAt,
+      completedAt,
       exercises:   draft.exercises.map(ex => ({
         ...ex,
         sets: ex.sets.map(s => ({ ...s, completed: true }))
@@ -2193,9 +2220,7 @@ const App = {
   },
 
   _workoutCard(w) {
-    const duration = App._fmtDuration(
-      (new Date(w.completedAt || w.startedAt) - new Date(w.startedAt)) / 1000
-    );
+    const durationSecs = App._workoutDuration(w);
     const vol      = DB.calcTotalVolume([w]);
     const exNames  = (w.exercises || []).slice(0, 4).map(e => e.exerciseName).join(' · ');
     const type     = w.exercises?.[0] ? (getExercise(w.exercises[0].exerciseId)?.category || 'custom') : 'custom';
@@ -2211,7 +2236,7 @@ const App = {
         <span class="badge badge-${badgeType}">${badgeType}</span>
       </div>
       <div class="workout-card-meta">
-        <span>${App._icon('clock', 13)} ${duration}</span>
+        ${durationSecs ? `<span>${App._icon('clock', 13)} ${App._fmtDuration(durationSecs)}</span>` : ''}
         <span>${App._icon('weight', 13)} ${App._fmtVol(vol)} kg</span>
         <span>${App._icon('list', 13)} ${w.exercises?.length || 0} exercises</span>
       </div>
@@ -2241,9 +2266,9 @@ const App = {
   },
 
   _exerciseBlock(ex, ei) {
-    const isActivity = ex.measureType === 'activity';
-    const setsHtml = isActivity
-      ? ex.sets.map((s, si) => App._activitySetRow(s, ei, si, false)).join('')
+    const isCardio = App._isCardio(ex.measureType);
+    const setsHtml = isCardio
+      ? ex.sets.map((s, si) => App._activitySetRow(s, ei, si, false, ex.measureType)).join('')
       : ex.sets.map((s, si) => `
       <div class="set-row ${s.completed ? 'completed' : ''}" data-ei="${ei}" data-si="${si}">
         <span class="set-num">${s.type === 'warmup' ? 'W' : s.setNumber}</span>
@@ -2259,7 +2284,7 @@ const App = {
         </button>
       </div>`).join('');
 
-    const setsHeader = isActivity
+    const setsHeader = isCardio
       ? ''
       : `<div class="sets-header">
            <span style="text-align:center">Set</span>
@@ -2268,7 +2293,7 @@ const App = {
            <span style="text-align:center">Done</span>
          </div>`;
 
-    const addLabel = isActivity ? '+ Session' : '+ Set';
+    const addLabel = ex.measureType === 'distance' ? '+ Leg' : (isCardio ? '+ Session' : '+ Set');
 
     return `
     <div class="exercise-block">
@@ -2276,7 +2301,7 @@ const App = {
         <div style="flex:1;min-width:0">
           <div class="exercise-block-name">${ex.exerciseName}</div>
           <div class="exercise-block-sub">
-            ${isActivity ? `${ex.sets.length} session${ex.sets.length !== 1 ? 's' : ''}` : `${ex.targetSets}×${ex.targetReps}${ex.restSeconds ? ` · ${ex.restSeconds}s rest` : ''}`}
+            ${isCardio ? `${ex.sets.length} session${ex.sets.length !== 1 ? 's' : ''}` : `${ex.targetSets}×${ex.targetReps}${ex.restSeconds ? ` · ${ex.restSeconds}s rest` : ''}`}
           </div>
           ${ex.suggestion ? `<div class="suggestion-chip">${ex.suggestion}</div>` : ''}
         </div>
@@ -2294,70 +2319,76 @@ const App = {
     </div>`;
   },
 
-  _blankSet(num, isActivity = false) {
-    return isActivity
-      ? { setNumber: num, duration: null, avgHr: null, maxHr: null, calories: null, completed: false, type: 'normal' }
-      : { setNumber: num, weight: null, reps: null, completed: false, type: 'normal' };
+  // Cardio-style exercises are logged as sessions with their own field set
+  // instead of weight × reps. 'activity' covers classes and martial arts;
+  // 'distance' covers runs, rides, rows and the Hyrox stations.
+  _isCardio(measureType) {
+    return measureType === 'activity' || measureType === 'distance';
   },
 
-  _activitySetRow(s, ei, si, isPast = false) {
+  _setFields(measureType) {
+    return measureType === 'distance'
+      ? [{ key: 'distance', label: 'Distance', unit: 'km',   mode: 'decimal' },
+         { key: 'duration', label: 'Duration', unit: 'min',  mode: 'decimal' },
+         { key: 'avgHr',    label: 'Avg HR',   unit: 'bpm',  mode: 'numeric' },
+         { key: 'calories', label: 'Calories', unit: 'kcal', mode: 'numeric' }]
+      : [{ key: 'duration', label: 'Duration', unit: 'min',  mode: 'decimal' },
+         { key: 'avgHr',    label: 'Avg HR',   unit: 'bpm',  mode: 'numeric' },
+         { key: 'maxHr',    label: 'Max HR',   unit: 'bpm',  mode: 'numeric' },
+         { key: 'calories', label: 'Calories', unit: 'kcal', mode: 'numeric' }];
+  },
+
+  _blankSet(num, measureType) {
+    if (!App._isCardio(measureType)) {
+      return { setNumber: num, weight: null, reps: null, completed: false, type: 'normal' };
+    }
+    const s = { setNumber: num, completed: false, type: 'normal' };
+    App._setFields(measureType).forEach(f => { s[f.key] = null; });
+    return s;
+  },
+
+  // min/km from the distance and duration already logged on the set.
+  _pace(s) {
+    const km = parseFloat(s.distance), min = parseFloat(s.duration);
+    if (!km || !min) return null;
+    const perKm = min / km;
+    return `${Math.floor(perKm)}:${String(Math.round((perKm % 1) * 60)).padStart(2, '0')} /km`;
+  },
+
+  _activitySetRow(s, ei, si, isPast = false, measureType = 'activity') {
     const dp = isPast ? 'data-past="1"' : '';
     const noInteract = isPast ? 'style="pointer-events:none"' : '';
+    const pace = measureType === 'distance' ? App._pace(s) : null;
+    const fields = App._setFields(measureType).map(f => `
+        <div class="activity-field">
+          <span class="activity-lbl">${f.label}</span>
+          <div class="activity-input-wrap">
+            <input type="number" class="set-input activity-input" inputmode="${f.mode}"
+              placeholder="—" value="${s[f.key] || ''}"
+              data-field="${f.key}" data-ei="${ei}" data-si="${si}" ${dp}>
+            <span class="activity-unit">${f.unit}</span>
+          </div>
+        </div>`).join('');
+
     return `
     <div class="activity-set-row ${s.completed ? 'completed' : ''}" data-ei="${ei}" data-si="${si}">
       <div class="activity-set-head">
         <span class="set-num">${s.setNumber}</span>
-        <span class="activity-sess-lbl">Session ${s.setNumber}</span>
+        <span class="activity-sess-lbl">${measureType === 'distance' ? 'Leg' : 'Session'} ${s.setNumber}</span>
+        ${pace ? `<span class="activity-pace">${pace}</span>` : ''}
         <button class="set-complete-btn ${s.completed ? 'done' : ''}" ${noInteract}
           ${!isPast ? `data-action="complete-set" data-ei="${ei}" data-si="${si}"` : ''}>
           ${s.completed ? App._icon('check', 16) : ''}
         </button>
       </div>
-      <div class="activity-fields">
-        <div class="activity-field">
-          <span class="activity-lbl">Duration</span>
-          <div class="activity-input-wrap">
-            <input type="number" class="set-input activity-input" inputmode="decimal"
-              placeholder="—" value="${s.duration || ''}"
-              data-field="duration" data-ei="${ei}" data-si="${si}" ${dp}>
-            <span class="activity-unit">min</span>
-          </div>
-        </div>
-        <div class="activity-field">
-          <span class="activity-lbl">Avg HR</span>
-          <div class="activity-input-wrap">
-            <input type="number" class="set-input activity-input" inputmode="numeric"
-              placeholder="—" value="${s.avgHr || ''}"
-              data-field="avgHr" data-ei="${ei}" data-si="${si}" ${dp}>
-            <span class="activity-unit">bpm</span>
-          </div>
-        </div>
-        <div class="activity-field">
-          <span class="activity-lbl">Max HR</span>
-          <div class="activity-input-wrap">
-            <input type="number" class="set-input activity-input" inputmode="numeric"
-              placeholder="—" value="${s.maxHr || ''}"
-              data-field="maxHr" data-ei="${ei}" data-si="${si}" ${dp}>
-            <span class="activity-unit">bpm</span>
-          </div>
-        </div>
-        <div class="activity-field">
-          <span class="activity-lbl">Calories</span>
-          <div class="activity-input-wrap">
-            <input type="number" class="set-input activity-input" inputmode="numeric"
-              placeholder="—" value="${s.calories || ''}"
-              data-field="calories" data-ei="${ei}" data-si="${si}" ${dp}>
-            <span class="activity-unit">kcal</span>
-          </div>
-        </div>
-      </div>
+      <div class="activity-fields">${fields}</div>
     </div>`;
   },
 
   _pastExerciseBlock(ex, ei) {
-    const isActivity = ex.measureType === 'activity';
-    const setsHtml = isActivity
-      ? ex.sets.map((s, si) => App._activitySetRow(s, ei, si, true)).join('')
+    const isCardio = App._isCardio(ex.measureType);
+    const setsHtml = isCardio
+      ? ex.sets.map((s, si) => App._activitySetRow(s, ei, si, true, ex.measureType)).join('')
       : ex.sets.map((s, si) => `
       <div class="set-row completed" data-ei="${ei}" data-si="${si}">
         <span class="set-num">${s.setNumber}</span>
@@ -2372,7 +2403,7 @@ const App = {
         </button>
       </div>`).join('');
 
-    const setsHeader = isActivity
+    const setsHeader = isCardio
       ? ''
       : `<div class="sets-header">
            <span style="text-align:center">Set</span>
@@ -2397,7 +2428,7 @@ const App = {
       <div class="sets-table">${setsHtml}</div>
       <div class="set-add-row">
         <button class="btn btn-sm btn-secondary" style="flex:1"
-          data-action="add-past-set" data-ei="${ei}">${isActivity ? '+ Session' : '+ Set'}</button>
+          data-action="add-past-set" data-ei="${ei}">${ex.measureType === 'distance' ? '+ Leg' : (isCardio ? '+ Session' : '+ Set')}</button>
       </div>
     </div>`;
   },
@@ -2423,6 +2454,17 @@ const App = {
   },
 
   // ── Formatting ──────────────────────────────────────────────────────────────
+  // Seconds of training for a workout. Live sessions get it from the clock;
+  // past ones only have it if the user typed a time spent, in which case fall
+  // back to adding up the per-session durations of any cardio entries.
+  _workoutDuration(w) {
+    const secs = (new Date(w.completedAt || w.startedAt) - new Date(w.startedAt)) / 1000;
+    if (secs >= 60) return secs;
+    const mins = (w.exercises || []).flatMap(e => e.sets || [])
+      .reduce((sum, s) => sum + (parseFloat(s.duration) || 0), 0);
+    return mins * 60;
+  },
+
   _fmtDuration(secs) {
     if (!secs || secs < 0) return '0:00';
     const h = Math.floor(secs / 3600);

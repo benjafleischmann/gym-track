@@ -26,11 +26,19 @@
 
 /* ─── Reset ────────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+/* overflow-x must be hidden on <html> as well as <body>: WebKit propagates the
+   body value to the viewport only when html is `visible`, so body alone still
+   lets the whole page pan sideways on iOS. */
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  overflow-x: hidden;
+}
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: var(--bg);
   color: var(--txt);
+  width: 100%;
   min-height: 100dvh;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
@@ -437,6 +445,11 @@ a      { color: inherit; text-decoration: none; }
   font-weight: 600;
   color: var(--txt2);
 }
+.activity-pace {
+  font-size: .72rem;
+  font-weight: 700;
+  color: var(--accent);
+}
 .activity-fields {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -547,6 +560,7 @@ canvas { display: block; }
   padding: 0 1rem;
   gap: 0;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
 }
@@ -902,6 +916,7 @@ canvas { display: block; }
   gap: .5rem;
   padding: .5rem 1rem;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
 }
