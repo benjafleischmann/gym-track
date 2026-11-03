@@ -3,6 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+
+  <!-- The GitHub Pages copy is superseded by Firebase Hosting, which is the
+       only origin that is same-origin with the Google auth handler. Sign-in
+       is permanently broken on github.io, so bounce visitors to the live app.
+       Runs before anything else loads; a no-op on every other host. Query and
+       hash are preserved so ?addFriend= invite links still work. -->
+  <script>
+    if (location.hostname.endsWith('github.io')) {
+      location.replace('https://gym-app-f6e7d.firebaseapp.com/' + location.search + location.hash);
+    }
+  </script>
+
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="GymTrack">
