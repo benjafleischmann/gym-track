@@ -60,13 +60,21 @@ const App = {
     // React to auth state changes (sign-in / sign-out)
     Firebase.onAuthChange(uid => {
       if (uid) {
-        // If no profile yet (signed in from onboarding), auto-complete setup
+        // Signed in from onboarding with nothing stored locally. Pull the cloud
+        // copy first — a returning user should not be asked to redo the
+        // assessment — and only run the questions when there is genuinely no
+        // profile to restore.
         if (!DB.getProfile()) {
           const name = Firebase.userName || 'Athlete';
           Firebase.restoreFromCloud().then(count => {
             if (count > 0) App._toast(`Welcome back! Synced ${count} items.`, 'success');
-          }).catch(() => {});
-          App._finishOnboarding(name, 'muscle', 'mixed');
+            if (DB.getProfile()) {
+              document.getElementById('bottom-nav').classList.remove('hidden');
+              App.navigate('dashboard');
+            } else {
+              App.showOnboarding({ name });
+            }
+          }).catch(() => App.showOnboarding({ name }));
           return;
         }
         // Push any local data to Firestore, then pull from cloud
@@ -413,21 +421,24 @@ const App = {
         </div>
 
         <div class="tab-bar">
-          <button class="tab-btn ${tab===0?'active':''}" data-action="set-tab" data-screen="routines" data-tab="0">Templates</button>
-          <button class="tab-btn ${tab===1?'active':''}" data-action="set-tab" data-screen="routines" data-tab="1">My Routines</button>
+          <button class="tab-btn ${tab===0?'active':''}" data-action="set-tab" data-screen="routines" data-tab="0">Recommended</button>
+          <button class="tab-btn ${tab===1?'active':''}" data-action="set-tab" data-screen="routines" data-tab="1">Templates</button>
+          <button class="tab-btn ${tab===2?'active':''}" data-action="set-tab" data-screen="routines" data-tab="2">My Routines</button>
         </div>
 
         <div style="padding:.75rem 1rem 0">
           ${tab === 0
-            ? ROUTINE_TEMPLATES.map(t => App._routineCard(t, 'template')).join('')
-            : myRoutines.length
-              ? myRoutines.map(r => App._routineCard(r, 'mine')).join('')
-              : `<div class="empty-state">
-                  <div class="empty-state-icon">📋</div>
-                  <div class="empty-state-title">No custom routines yet</div>
-                  <div class="empty-state-text">Tap "+ New" to build your own routine.</div>
-                  <button class="btn btn-primary" style="margin-top:.5rem;width:auto;padding:.7rem 2rem" data-action="create-routine">Create Routine</button>
-                </div>`
+            ? App._recommendedTab()
+            : tab === 1
+              ? ROUTINE_TEMPLATES.map(t => App._routineCard(t, 'template')).join('')
+              : myRoutines.length
+                ? myRoutines.map(r => App._routineCard(r, 'mine')).join('')
+                : `<div class="empty-state">
+                    <div class="empty-state-icon">📋</div>
+                    <div class="empty-state-title">No custom routines yet</div>
+                    <div class="empty-state-text">Tap "+ New" to build your own routine.</div>
+                    <button class="btn btn-primary" style="margin-top:.5rem;width:auto;padding:.7rem 2rem" data-action="create-routine">Create Routine</button>
+                  </div>`
           }
         </div>
       </div>`;
@@ -435,12 +446,16 @@ const App = {
 
     // ── Routine Detail ────────────────────────────────────────────────────────
     routineDetail(routineId) {
-      const r = routineId.startsWith('tpl-')
-        ? ROUTINE_TEMPLATES.find(t => t.id === routineId)
-        : DB.getRoutine(routineId);
+      const r = routineId === 'rec-plan'
+        ? App._recPlan()
+        : routineId.startsWith('tpl-')
+          ? ROUTINE_TEMPLATES.find(t => t.id === routineId)
+          : DB.getRoutine(routineId);
       if (!r) return App.screens.routines();
 
       const isTemplate = routineId.startsWith('tpl-');
+      const isRec      = routineId === 'rec-plan';
+      const profile    = DB.getProfile() || {};
       const tab = App.state.activeTab['routine-detail'] || 0;
       const day = r.days[tab] || r.days[0];
 
@@ -450,9 +465,11 @@ const App = {
           <button class="back-btn" data-action="back">${App._icon('chevron-left')}</button>
           <span class="screen-title" style="flex:1;text-align:center">${r.name}</span>
           <div style="display:flex;gap:.4rem">
-            ${isTemplate
-              ? `<button class="btn btn-sm btn-ghost" data-action="save-template" data-id="${r.id}">Save</button>`
-              : `<button class="btn btn-sm btn-danger" data-action="delete-routine" data-id="${r.id}">Delete</button>`}
+            ${isRec
+              ? `<button class="btn btn-sm btn-ghost" data-action="save-rec-plan">Save</button>`
+              : isTemplate
+                ? `<button class="btn btn-sm btn-ghost" data-action="save-template" data-id="${r.id}">Save</button>`
+                : `<button class="btn btn-sm btn-danger" data-action="delete-routine" data-id="${r.id}">Delete</button>`}
           </div>
         </div>
 
@@ -475,14 +492,24 @@ const App = {
         ${day ? `
         <div style="padding:.75rem 1rem 0">
           ${day.exercises.map(ex => {
-            const info = getExercise(ex.exerciseId);
+            const info  = getExercise(ex.exerciseId);
+            const notes = isRec ? Recommend.injuryNotes(ex.exerciseId, profile) : [];
             return `
-            <div class="list-item" style="cursor:default;border-radius:var(--radius-sm);border:1px solid var(--border);margin-bottom:.4rem;background:var(--bg2)">
+            <div class="list-item routine-ex ${ex.prep ? 'is-prep' : ''}" style="cursor:default;border-radius:var(--radius-sm);border:1px solid var(--border);margin-bottom:.4rem;background:var(--bg2)">
               <div class="list-item-left">
                 <div class="list-item-icon">${App._exIcon(ex.exerciseId)}</div>
                 <div>
-                  <div class="list-item-name">${info ? info.name : ex.exerciseId}</div>
-                  <div class="list-item-sub">${ex.sets} × ${ex.reps}${ex.rest ? ` · ${ex.rest}s rest` : ''}</div>
+                  <div class="list-item-name">
+                    ${info ? info.name : ex.exerciseId}
+                    ${ex.prep ? `<span class="prep-tag">prep · ${ex.forArea}</span>` : ''}
+                    ${ex.finisher ? `<span class="prep-tag">finisher</span>` : ''}
+                  </div>
+                  <div class="list-item-sub">
+                    ${ex.sets} × ${ex.reps}${ex.rest ? ` · ${ex.rest}s rest` : ''}
+                    ${ex.suggestedKg ? ` · <span class="sugg-kg">${ex.suggestedKg} kg</span>` : ''}
+                    ${isRec && !ex.suggestedKg && ex.loadSource === 'rir' ? ` · <span class="sugg-rir">pick a weight leaving 2 reps in reserve</span>` : ''}
+                  </div>
+                  ${notes.map(n => `<div class="ex-caution">${n.label}: ${n.note}</div>`).join('')}
                 </div>
               </div>
               ${info ? `<a href="https://www.youtube.com/results?search_query=${encodeURIComponent(info.name + ' how to tutorial')}" target="_blank" class="yt-demo-btn" title="Watch demo on YouTube">
@@ -755,6 +782,35 @@ const App = {
           </div>
         </div>
 
+        <!-- ── Training assessment ── -->
+        <div class="section-header" style="margin-top:.75rem">
+          <h2>Training Assessment</h2>
+          <button class="btn btn-sm btn-ghost" data-action="retake-assessment">
+            ${Recommend.isAssessed(profile) ? 'Update' : 'Start'}
+          </button>
+        </div>
+        <div style="padding:0 1rem">
+          ${Recommend.isAssessed(profile) ? `
+            <div class="assess-card">
+              <div class="assess-grid">
+                <div><span>Experience</span><strong>${App._fmtExperience(profile.experience)}</strong></div>
+                <div><span>Days / week</span><strong>${profile.daysPerWeek || '—'}</strong></div>
+                <div><span>Weight</span><strong>${profile.weightKg ? profile.weightKg + ' kg' : '—'}</strong></div>
+                <div><span>Height</span><strong>${profile.heightCm ? profile.heightCm + ' cm' : '—'}</strong></div>
+                <div><span>Equipment</span><strong>${Recommend.EQUIPMENT[profile.equipment]?.label || '—'}</strong></div>
+                <div><span>Goal</span><strong>${App._fmtGoal(profile.goal)}</strong></div>
+              </div>
+              ${profile.injuries?.length ? `
+                <div class="assess-injuries">
+                  ${profile.injuries.map(i => `<span class="injury-pill">${Recommend.INJURY[i.area]?.label || i.area}${i.type ? ` · ${i.type}` : ''}</span>`).join('')}
+                </div>` : ''}
+              ${profile.assessedAt ? `<div class="assess-when">Last updated ${App._fmtDateShort(new Date(profile.assessedAt))}</div>` : ''}
+            </div>` : `
+            <div class="assess-card empty">
+              Answer a few questions about your body, experience and goals to get a plan with sets, reps and starting weights.
+            </div>`}
+        </div>
+
         <!-- ── Body Metrics ── -->
         <div class="section-header" style="margin-top:.75rem">
           <h2>Body Metrics</h2>
@@ -963,9 +1019,49 @@ const App = {
   },
 
   // ── Onboarding ─────────────────────────────────────────────────────────────
-  showOnboarding() {
+  // Doubles as the "retake assessment" flow: pass an existing profile and every
+  // step comes back pre-filled, so updating one answer does not mean retyping
+  // all of them.
+  showOnboarding(existing) {
     document.getElementById('bottom-nav').classList.add('hidden');
-    document.getElementById('app').innerHTML = this._onboardingStep(1, {});
+    this._obData = existing ? { ...existing, retake: true } : {};
+    document.getElementById('app').innerHTML = this._onboardingStep(existing ? 2 : 1, this._obData);
+  },
+
+  // The assessment asks for a weight target only when the stated goal is about
+  // changing bodyweight; asking someone chasing a 1RM how much they want to
+  // weigh in 12 weeks is noise.
+  _obNeedsTarget(data) {
+    return data.goal === 'fat_loss' || data.goal === 'bulking';
+  },
+
+  _obLastStep(data) { return this._obNeedsTarget(data) ? 7 : 6; },
+
+  _obDots(step, data) {
+    const last = this._obLastStep(data);
+    return `<div class="step-indicator">${
+      Array.from({ length: last }, (_, i) =>
+        `<div class="step-dot ${i + 1 === step ? 'active' : ''} ${i + 1 < step ? 'done' : ''}"></div>`
+      ).join('')
+    }</div>`;
+  },
+
+  _obNav(step, data, label = 'Continue') {
+    // A retake starts at step 2, so there is no earlier step to go back to.
+    // Offer a way out instead — the bottom nav is hidden during the wizard.
+    const back = step > (data.retake ? 2 : 1)
+      ? `<button class="btn btn-ghost ob-back" data-action="ob-back" data-step="${step}">Back</button>`
+      : data.retake
+        ? `<button class="btn btn-ghost ob-back" data-action="ob-cancel">Cancel</button>` : '';
+    return `<div class="ob-nav">${back}
+      <button class="btn btn-primary" data-action="ob-next" data-step="${step}">${label}</button></div>`;
+  },
+
+  _obChips(group, options, selectedVal) {
+    return `<div class="chip-select ob-chips">${options.map(([v, l, e]) => `
+      <div class="chip ${selectedVal === v ? 'selected' : ''}"
+        data-action="select-chip" data-group="${group}" data-val="${v}">${e ? e + ' ' : ''}${l}</div>
+    `).join('')}</div>`;
   },
 
   _onboardingStep(step, data) {
@@ -977,75 +1073,298 @@ const App = {
             <span>GymTrack</span>
           </div>
           <div class="onboarding-title">Train <span>smarter.</span><br>Track <span>everything.</span></div>
-          <div class="onboarding-subtitle">Your all-in-one gym tracker for Hyrox, CrossFit, Strength, Cardio and more.</div>
+          <div class="onboarding-subtitle">Answer a few questions and we'll build you a plan — sets, reps and starting weights included.</div>
         </div>
         <div>
-          <div class="step-indicator">
-            <div class="step-dot active"></div><div class="step-dot"></div><div class="step-dot"></div>
-          </div>
+          ${this._obDots(1, data)}
           <button class="btn btn-primary" style="margin-bottom:.75rem" data-action="google-signin">
             Continue with Google
           </button>
           <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.75rem">
             <div style="flex:1;height:1px;background:var(--border)"></div>
-            <span style="font-size:.75rem;color:var(--txt3)">or set up manually</span>
+            <span style="font-size:.75rem;color:var(--txt3)">or continue as guest</span>
             <div style="flex:1;height:1px;background:var(--border)"></div>
           </div>
           <div class="form-group" style="padding:0 0 .75rem">
             <label class="form-label">Your name</label>
-            <input class="form-input" id="ob-name" placeholder="e.g. Alex" autocomplete="given-name">
+            <input class="form-input" id="ob-name" placeholder="e.g. Alex" autocomplete="given-name"
+                   value="${data.name || ''}">
           </div>
-          <button class="btn btn-ghost" style="border:1px solid var(--border)" data-action="ob-next" data-step="2">Continue manually</button>
+          <button class="btn btn-ghost" style="border:1px solid var(--border)" data-action="ob-next" data-step="1">Continue as guest</button>
         </div>
       </div>`;
 
     if (step === 2) return `
-      <div class="onboarding-screen" data-ob-name="${data.name}">
+      <div class="onboarding-screen">
         <div>
           <div class="onboarding-title">What's your <span>main goal?</span></div>
-          <div class="onboarding-subtitle">We'll personalise routines and progression for you.</div>
+          <div class="onboarding-subtitle">This sets your rep ranges and rest periods.</div>
         </div>
         <div>
-          <div class="step-indicator">
-            <div class="step-dot"></div><div class="step-dot active"></div><div class="step-dot"></div>
-          </div>
-          <div class="chip-select" style="flex-direction:column;gap:.5rem" id="ob-goal-chips">
-            ${[['muscle','Build Muscle','💪'],['fat_loss','Lose Body Fat','🔥'],['bulking','Bulk Up','📈'],['endurance','Improve Endurance','🏃'],['strength','Get Stronger','🏋️']].map(([v,l,e]) => `
-              <div class="chip" style="padding:.85rem;font-size:.95rem;text-align:center"
-                data-action="select-chip" data-group="ob-goal" data-val="${v}">${e} ${l}</div>
-            `).join('')}
-          </div>
-          <button class="btn btn-primary" style="margin-top:1rem" data-action="ob-next" data-step="3">Continue</button>
+          ${this._obDots(2, data)}
+          ${this._obChips('ob-goal', [
+            ['muscle','Build Muscle','💪'],['fat_loss','Lose Body Fat','🔥'],
+            ['bulking','Bulk Up','📈'],['endurance','Improve Endurance','🏃'],
+            ['strength','Get Stronger','🏋️']], data.goal)}
+          ${this._obNav(2, data)}
         </div>
       </div>`;
 
     if (step === 3) return `
-      <div class="onboarding-screen" data-ob-name="${data.name}" data-ob-goal="${data.goal}">
+      <div class="onboarding-screen">
         <div>
           <div class="onboarding-title">Choose your <span>training style</span></div>
           <div class="onboarding-subtitle">You can always mix and match later.</div>
         </div>
         <div>
-          <div class="step-indicator">
-            <div class="step-dot"></div><div class="step-dot"></div><div class="step-dot active"></div>
+          ${this._obDots(3, data)}
+          ${this._obChips('ob-type', [
+            ['strength','Strength Training','🏋️'],['hyrox','Hyrox','🏅'],
+            ['crossfit','CrossFit','🔥'],['cardio','Cardio / Running','🏃'],
+            ['mixed','Mixed / Everything','⚡']], data.trainingType)}
+          ${this._obNav(3, data)}
+        </div>
+      </div>`;
+
+    // Height and weight drive the starting-load estimate; age and sex are what
+    // the strength standards are indexed on. "Prefer not to say" is honoured by
+    // falling back to the more conservative set of numbers.
+    if (step === 4) return `
+      <div class="onboarding-screen">
+        <div>
+          <div class="onboarding-title">About <span>your body</span></div>
+          <div class="onboarding-subtitle">Used to estimate your starting weights. Stored only on your device unless you sign in.</div>
+        </div>
+        <div>
+          ${this._obDots(4, data)}
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Weight (kg)</label>
+              <input type="number" class="form-input" id="ob-weight" inputmode="decimal"
+                     min="30" max="300" step="0.1" placeholder="75" value="${data.weightKg || ''}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Height (cm)</label>
+              <input type="number" class="form-input" id="ob-height" inputmode="numeric"
+                     min="120" max="230" placeholder="178" value="${data.heightCm || ''}">
+            </div>
           </div>
-          <div class="chip-select" style="flex-direction:column;gap:.5rem" id="ob-type-chips">
-            ${[['strength','Strength Training','🏋️'],['hyrox','Hyrox','🏅'],['crossfit','CrossFit','🔥'],['cardio','Cardio / Running','🏃'],['mixed','Mixed / Everything','⚡']].map(([v,l,e]) => `
-              <div class="chip" style="padding:.85rem;font-size:.95rem;text-align:center"
-                data-action="select-chip" data-group="ob-type" data-val="${v}">${e} ${l}</div>
+          <div class="form-group">
+            <label class="form-label">Age</label>
+            <input type="number" class="form-input" id="ob-age" inputmode="numeric"
+                   min="14" max="100" placeholder="30" value="${data.age || ''}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Biological sex</label>
+            ${this._obChips('ob-sex', [['male','Male',''],['female','Female',''],['unspecified','Prefer not to say','']], data.sex)}
+          </div>
+          ${this._obNav(4, data)}
+        </div>
+      </div>`;
+
+    if (step === 5) return `
+      <div class="onboarding-screen">
+        <div>
+          <div class="onboarding-title">Your <span>training setup</span></div>
+          <div class="onboarding-subtitle">How much you've trained, how often you can, and what you have access to.</div>
+        </div>
+        <div>
+          ${this._obDots(5, data)}
+          <div class="form-group">
+            <label class="form-label">Training experience</label>
+            ${this._obChips('ob-exp', [
+              ['novice','Under 6 months',''],['intermediate','6 months – 2 years',''],
+              ['advanced','2 years or more','']], data.experience)}
+          </div>
+          <div class="form-group">
+            <label class="form-label">Days per week you can train</label>
+            ${this._obChips('ob-days', [['2','2',''],['3','3',''],['4','4',''],['5','5',''],['6','6','']],
+              data.daysPerWeek ? String(data.daysPerWeek) : '')}
+          </div>
+          <div class="form-group">
+            <label class="form-label">Equipment</label>
+            ${this._obChips('ob-equip', [
+              ['full_gym','Full gym','🏋️'],['dumbbells','Dumbbells / home','🏠'],
+              ['bodyweight','Bodyweight only','🤸']], data.equipment)}
+          </div>
+          ${this._obNav(5, data)}
+        </div>
+      </div>`;
+
+    // Injuries add supportive work rather than removing exercises. Only a short
+    // list of genuinely high-impact movements is held back, and the plan says so.
+    if (step === 6) {
+      const chosen = {};
+      (data.injuries || []).forEach(i => { chosen[i.area] = i; });
+      return `
+      <div class="onboarding-screen">
+        <div>
+          <div class="onboarding-title">Any <span>injuries?</span></div>
+          <div class="onboarding-subtitle">We'll add supportive work for these areas rather than cutting exercises out.</div>
+        </div>
+        <div>
+          ${this._obDots(6, data)}
+          <div class="chip-select ob-chips">
+            ${Object.entries(Recommend.INJURY).map(([area, cfg]) => `
+              <div class="chip ${chosen[area] ? 'selected' : ''}"
+                data-action="toggle-injury" data-area="${area}">${cfg.label}</div>
             `).join('')}
           </div>
-          <button class="btn btn-primary" style="margin-top:1rem" data-action="ob-finish">Let's Go!</button>
+          <div id="ob-injury-details">
+            ${Object.entries(Recommend.INJURY).map(([area, cfg]) => `
+              <div class="injury-detail ${chosen[area] ? '' : 'hidden'}" data-area="${area}">
+                <div class="injury-detail-head">${cfg.label}</div>
+                <input class="form-input" id="inj-type-${area}" placeholder="What is it? e.g. meniscus tear, tendinitis"
+                       value="${chosen[area]?.type ? String(chosen[area].type).replace(/"/g, '&quot;') : ''}">
+                <div class="injury-tx">
+                  ${this._obChips(`inj-tx-${area}`, [
+                    ['ongoing','In treatment',''],['past','Treated / recovered',''],['none','No treatment','']
+                  ], chosen[area]?.treatment)}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          ${this._obNav(6, data, this._obNeedsTarget(data) ? 'Continue' : 'Build my plan')}
+        </div>
+      </div>`;
+    }
+
+    if (step === 7) return `
+      <div class="onboarding-screen">
+        <div>
+          <div class="onboarding-title">Your <span>target</span></div>
+          <div class="onboarding-subtitle">We'll tell you honestly whether the timeframe is realistic.</div>
+        </div>
+        <div>
+          ${this._obDots(7, data)}
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Target weight (kg)</label>
+              <input type="number" class="form-input" id="ob-target-weight" inputmode="decimal"
+                     min="30" max="300" step="0.1" placeholder="${data.weightKg || 70}"
+                     value="${data.targetWeightKg || ''}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">In how many weeks</label>
+              <input type="number" class="form-input" id="ob-target-weeks" inputmode="numeric"
+                     min="1" max="104" placeholder="12" value="${data.targetWeeks || ''}">
+            </div>
+          </div>
+          <div id="ob-feasibility">${App._feasibilityHtml(data)}</div>
+          ${this._obNav(7, data, 'Build my plan')}
         </div>
       </div>`;
   },
 
-  _finishOnboarding(name, goal, trainingType) {
-    const profile = { id: DB.uid(), name, goal, trainingType, createdAt: new Date().toISOString() };
+  // Live verdict under the target fields. Re-rendered on every keystroke so the
+  // user finds out the timeframe is unrealistic while they are still typing it,
+  // not weeks later.
+  _feasibilityHtml(data) {
+    const a = Recommend.assessObjective(data);
+    if (!a) return `<div class="feasibility muted">Enter a target to see whether the pace is realistic.</div>`;
+    const cls = a.verdict === 'safe' ? 'ok' : a.verdict === 'aggressive' ? 'warn' : 'bad';
+    const head = a.verdict === 'safe' ? 'Realistic'
+               : a.verdict === 'aggressive' ? 'Aggressive but possible'
+               : 'Not realistic in that time';
+    return `<div class="feasibility ${cls}">
+      <div class="feasibility-head">${head}</div>
+      <div class="feasibility-body">${a.message}</div>
+      ${a.verdict === 'unrealistic'
+        ? `<button class="btn btn-sm btn-ghost feasibility-fix" data-action="ob-use-safe-weeks"
+             data-weeks="${a.safeWeeks}">Use ${a.safeWeeks} weeks instead</button>` : ''}
+    </div>`;
+  },
+
+  _finishOnboarding(data) {
+    const prev = DB.getProfile();
+    const profile = {
+      id:        prev?.id || DB.uid(),
+      createdAt: prev?.createdAt || new Date().toISOString(),
+      name:          data.name || 'Athlete',
+      goal:          data.goal || 'muscle',
+      trainingType:  data.trainingType || 'mixed',
+      sex:           data.sex || 'unspecified',
+      age:           data.age || null,
+      heightCm:      data.heightCm || null,
+      weightKg:      data.weightKg || null,
+      experience:    data.experience || 'novice',
+      daysPerWeek:   data.daysPerWeek || 3,
+      equipment:     data.equipment || 'full_gym',
+      injuries:      data.injuries || [],
+      targetWeightKg: this._obNeedsTarget(data) ? (data.targetWeightKg || null) : null,
+      targetWeeks:    this._obNeedsTarget(data) ? (data.targetWeeks || null) : null,
+      assessedAt:    new Date().toISOString(),
+    };
     DB.saveProfile(profile);
+
+    // Seed the body-metrics log so the weight chart starts from the assessment
+    // rather than waiting for the first manual entry.
+    if (profile.weightKg && !DB.getLatestBodyMetric()) {
+      DB.saveBodyMetric({ id: DB.uid(), date: new Date().toISOString(), weight: profile.weightKg });
+    }
+
     Firebase.onReady(() => Firebase.syncProfile(profile).catch(() => {}));
+    this._obData = null;
     document.getElementById('bottom-nav').classList.remove('hidden');
-    this.navigate('dashboard');
+    this.state.activeTab['routines'] = 0;
+    this.navigate('routines');
+    this._toast('Your plan is ready', 'success');
+  },
+
+  // Reads whatever the current step is showing into the running answer set.
+  // Returns an error string when the step is incomplete.
+  _obCollect(step, data) {
+    const val = g => document.querySelector(`.chip.selected[data-group="${g}"]`)?.dataset?.val;
+    const num = id => {
+      const v = parseFloat(document.getElementById(id)?.value);
+      return Number.isFinite(v) ? v : null;
+    };
+
+    if (step === 1) {
+      const name = document.getElementById('ob-name')?.value?.trim();
+      if (!name) return 'Enter your name';
+      data.name = name;
+    }
+    if (step === 2) {
+      if (!val('ob-goal')) return 'Pick a goal';
+      data.goal = val('ob-goal');
+    }
+    if (step === 3) {
+      if (!val('ob-type')) return 'Pick a training style';
+      data.trainingType = val('ob-type');
+    }
+    if (step === 4) {
+      data.weightKg = num('ob-weight');
+      data.heightCm = num('ob-height');
+      data.age      = num('ob-age');
+      data.sex      = val('ob-sex') || 'unspecified';
+      if (!data.weightKg) return 'Enter your weight';
+      if (!data.heightCm) return 'Enter your height';
+    }
+    if (step === 5) {
+      if (!val('ob-exp'))   return 'Pick your experience level';
+      if (!val('ob-days'))  return 'Pick how many days you can train';
+      if (!val('ob-equip')) return 'Pick your equipment';
+      data.experience  = val('ob-exp');
+      data.daysPerWeek = parseInt(val('ob-days'));
+      data.equipment   = val('ob-equip');
+    }
+    if (step === 6) {
+      data.injuries = [...document.querySelectorAll('.chip.selected[data-action="toggle-injury"]')]
+        .map(c => c.dataset.area)
+        .map(area => ({
+          area,
+          type:      document.getElementById(`inj-type-${area}`)?.value?.trim() || '',
+          treatment: val(`inj-tx-${area}`) || 'none',
+        }));
+    }
+    if (step === 7) {
+      data.targetWeightKg = num('ob-target-weight');
+      data.targetWeeks    = num('ob-target-weeks');
+      if (!data.targetWeightKg) return 'Enter a target weight';
+      if (!data.targetWeeks)    return 'Enter a timeframe';
+    }
+    return null;
   },
 
   // ── Workout Engine ─────────────────────────────────────────────────────────
@@ -1053,7 +1372,9 @@ const App = {
     start(routineId, dayIndex) {
       const isTemplate = routineId && routineId.startsWith('tpl-');
       const routine = routineId
-        ? (isTemplate ? ROUTINE_TEMPLATES.find(t => t.id === routineId) : DB.getRoutine(routineId))
+        ? (routineId === 'rec-plan' ? App._recPlan()
+           : isTemplate ? ROUTINE_TEMPLATES.find(t => t.id === routineId)
+           : DB.getRoutine(routineId))
         : null;
 
       const day = routine ? routine.days[dayIndex || 0] : null;
@@ -1062,7 +1383,9 @@ const App = {
         const mt          = info?.measureType || null;
         const isCardio    = App._isCardio(mt);
         const suggestion  = !isCardio ? DB.getProgressionSuggestion(ex.exerciseId, routineId, day.id) : null;
-        const targetWeight = suggestion ? suggestion.weight : null;
+        // History wins; the assessment's estimate is only there to fill the
+        // very first session, when there is nothing to progress from.
+        const targetWeight = suggestion ? suggestion.weight : (ex.suggestedKg || null);
 
         return {
           exerciseId:   ex.exerciseId,
@@ -1519,27 +1842,42 @@ const App = {
       // Onboarding
       case 'ob-next': {
         const step = parseInt(el.dataset.step);
-        const screen = document.querySelector('.onboarding-screen');
-        if (step === 2) {
-          const name = document.getElementById('ob-name')?.value?.trim();
-          if (!name) { this._toast('Enter your name', 'error'); return; }
-          document.getElementById('app').innerHTML = this._onboardingStep(2, { name });
-          this._obData = { name };
-        }
-        if (step === 3) {
-          const goal = document.querySelector('.chip.selected[data-group="ob-goal"]')?.dataset?.val;
-          if (!goal) { this._toast('Pick a goal', 'error'); return; }
-          this._obData = { ...this._obData, goal };
-          document.getElementById('app').innerHTML = this._onboardingStep(3, this._obData);
-        }
+        this._obData = this._obData || {};
+        const err = this._obCollect(step, this._obData);
+        if (err) { this._toast(err, 'error'); return; }
+
+        if (step >= this._obLastStep(this._obData)) { this._finishOnboarding(this._obData); return; }
+        document.getElementById('app').innerHTML = this._onboardingStep(step + 1, this._obData);
+        document.getElementById('app').scrollTop = 0;
         break;
       }
-      case 'ob-finish': {
-        const type = document.querySelector('.chip.selected[data-group="ob-type"]')?.dataset?.val;
-        if (!type) { this._toast('Pick a training style', 'error'); return; }
-        this._finishOnboarding(this._obData?.name || 'Athlete', this._obData?.goal || 'muscle', type);
+      case 'ob-back': {
+        const step = parseInt(el.dataset.step);
+        // Keep whatever is on screen, but never block going back over it.
+        this._obCollect(step, this._obData || {});
+        document.getElementById('app').innerHTML = this._onboardingStep(step - 1, this._obData);
         break;
       }
+      case 'toggle-injury': {
+        el.classList.toggle('selected');
+        const panel = document.querySelector(`.injury-detail[data-area="${el.dataset.area}"]`);
+        if (panel) panel.classList.toggle('hidden', !el.classList.contains('selected'));
+        break;
+      }
+      case 'ob-use-safe-weeks': {
+        const input = document.getElementById('ob-target-weeks');
+        if (input) { input.value = el.dataset.weeks; input.dispatchEvent(new Event('input', { bubbles: true })); }
+        break;
+      }
+      case 'retake-assessment':
+        this.showOnboarding(DB.getProfile() || {});
+        break;
+
+      case 'ob-cancel':
+        this._obData = null;
+        document.getElementById('bottom-nav').classList.remove('hidden');
+        this.navigate('profile');
+        break;
 
       // Select chip
       case 'select-chip': {
@@ -1604,6 +1942,20 @@ const App = {
           const copy = JSON.parse(JSON.stringify(tpl));
           copy.id = DB.uid();
           copy.savedFrom = tpl.id;
+          DB.saveRoutine(copy);
+          this._toast('Saved to My Routines!', 'success');
+        }
+        break;
+      }
+      // Freezes the generated plan as an editable copy. The live version keeps
+      // tracking the assessment; this one is yours to change.
+      case 'save-rec-plan': {
+        const plan = this._recPlan();
+        if (plan) {
+          const copy = JSON.parse(JSON.stringify(plan));
+          copy.id = DB.uid();
+          copy.savedFrom = 'rec-plan';
+          delete copy.meta;
           DB.saveRoutine(copy);
           this._toast('Saved to My Routines!', 'success');
         }
@@ -1794,6 +2146,20 @@ const App = {
 
   _handleInput(e) {
     const el = e.target;
+
+    // Live feasibility verdict while the target is being typed.
+    if (el.id === 'ob-target-weight' || el.id === 'ob-target-weeks') {
+      const box = document.getElementById('ob-feasibility');
+      if (box) {
+        const draft = {
+          ...this._obData,
+          targetWeightKg: parseFloat(document.getElementById('ob-target-weight')?.value) || null,
+          targetWeeks:    parseFloat(document.getElementById('ob-target-weeks')?.value)  || null,
+        };
+        box.innerHTML = App._feasibilityHtml(draft);
+      }
+      return;
+    }
 
     // Set fields (active or past workout). The indices live on the input itself
     // so this works for both the weight/reps rows and the cardio field grid.
@@ -2265,6 +2631,84 @@ const App = {
     </div>`;
   },
 
+  // The generated plan is derived from the profile on demand rather than
+  // stored, so retaking the assessment can never leave a stale copy behind.
+  // Cached per render pass because building it walks the whole exercise list.
+  _recPlan() {
+    const profile = DB.getProfile();
+    if (!Recommend.isAssessed(profile)) return null;
+    if (this._recCache && this._recCache.at === profile.assessedAt) return this._recCache.plan;
+    const plan = Recommend.buildPlan(profile);
+    this._recCache = { at: profile.assessedAt, plan };
+    return plan;
+  },
+
+  _recommendedTab() {
+    const profile = DB.getProfile();
+
+    if (!Recommend.isAssessed(profile)) {
+      return `<div class="empty-state">
+        <div class="empty-state-icon">🎯</div>
+        <div class="empty-state-title">Answer a few questions</div>
+        <div class="empty-state-text">Tell us your body stats, experience, injuries and goal, and we'll build a plan with sets, reps and starting weights.</div>
+        <button class="btn btn-primary" style="margin-top:.5rem;width:auto;padding:.7rem 2rem" data-action="retake-assessment">Start assessment</button>
+      </div>`;
+    }
+
+    const plan = this._recPlan();
+    if (!plan) return `<div class="empty-state"><div class="empty-state-title">Couldn't build a plan</div></div>`;
+
+    const m    = plan.meta;
+    const obj  = m.objective;
+    const alts = Recommend.scoreTemplates(profile).slice(0, 4);
+
+    return `
+      ${obj ? `<div class="feasibility ${obj.verdict === 'safe' ? 'ok' : obj.verdict === 'aggressive' ? 'warn' : 'bad'} rec-objective">
+        <div class="feasibility-head">${
+          obj.kind === 'maintain' ? 'Maintaining'
+          : obj.verdict === 'safe' ? 'On a realistic pace'
+          : obj.verdict === 'aggressive' ? 'Aggressive pace' : 'Target not realistic in that time'}</div>
+        <div class="feasibility-body">${obj.message}</div>
+      </div>` : ''}
+
+      <div class="rec-plan-card" data-action="open-routine" data-id="rec-plan">
+        <div class="rec-plan-head">
+          <div>
+            <div class="rec-eyebrow">Your plan</div>
+            <div class="rec-plan-name">${plan.name}</div>
+          </div>
+          <div class="rec-plan-go">${App._icon('chevron-right', 20)}</div>
+        </div>
+        <div class="rec-plan-desc">${plan.description}</div>
+        <div class="rec-plan-days">
+          ${plan.days.map(d => `<span class="rec-day-pill">${d.name}</span>`).join('')}
+        </div>
+      </div>
+
+      ${m.notes.map(n => `<div class="rec-note ${n.kind}">${n.text}</div>`).join('')}
+
+      ${m.volume.low.length ? `<div class="rec-note info">
+        Weekly volume is below the ~${m.volume.target} sets per muscle that the research associates with the biggest gains for: ${m.volume.low.join(', ')}. Add a day or extra accessory work if you want to push those.
+      </div>` : ''}
+
+      <div class="rec-alts-head">Also a good fit for you</div>
+      ${alts.map(a => `
+        <div class="routine-card rec-alt" data-action="open-routine" data-id="${a.template.id}">
+          <div class="routine-card-top">
+            <div class="rec-score">${a.score}</div>
+            <div>
+              <div class="routine-card-name">${a.template.name}</div>
+              <div class="routine-card-sub">${a.reasons.length ? a.reasons.join(' · ') : `${a.template.daysPerWeek} days/week`}</div>
+            </div>
+          </div>
+        </div>`).join('')}
+
+      <div class="rec-footer">
+        <button class="btn btn-ghost" style="border:1px solid var(--border)" data-action="retake-assessment">Update my answers</button>
+        <div class="rec-disclaimer">Starting weights are estimates from published strength standards, deliberately on the light side. They adjust as you log sets. Not medical advice — if an injury is being treated, check with your clinician first.</div>
+      </div>`;
+  },
+
   _exerciseBlock(ex, ei) {
     const isCardio = App._isCardio(ex.measureType);
     const setsHtml = isCardio
@@ -2502,6 +2946,11 @@ const App = {
   _goalShort(g) {
     const map = { muscle: 'Muscle', fat_loss: 'Fat Loss', bulking: 'Bulk', endurance: 'Endurance', strength: 'Strength' };
     return map[g] || g || '—';
+  },
+
+  _fmtExperience(e) {
+    const map = { novice: 'Under 6 months', intermediate: '6 months – 2 years', advanced: '2 years or more' };
+    return map[e] || '—';
   },
 
   _capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); },

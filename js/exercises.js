@@ -135,6 +135,32 @@ const EXERCISES = [
   { id: 'hamstring-stretch',  name: 'Supine Hamstring Stretch', category: 'mobility', type: 'bodyweight', muscles: ['Hamstrings'],                  measureType: 'time' },
   { id: 'hip-circle',         name: 'Hip Circles',           category: 'mobility', type: 'bodyweight',  muscles: ['Hips','Glutes'],                 measureType: 'time' },
   { id: 'wall-sit',           name: 'Wall Sit',              category: 'mobility', type: 'bodyweight',  muscles: ['Quads','Glutes'],                measureType: 'time' },
+  // MOBILITY / REHAB — shoulder
+  { id: 'band-external-rot',  name: 'Band External Rotation', category: 'mobility', type: 'other',      muscles: ['Rotator Cuff','Rear Delts'] },
+  { id: 'scap-wall-slide',    name: 'Scapular Wall Slide',   category: 'mobility', type: 'bodyweight',  muscles: ['Scapular Stabilisers','Shoulders'] },
+  { id: 'prone-ytw',          name: 'Prone Y-T-W Raise',     category: 'mobility', type: 'bodyweight',  muscles: ['Lower Traps','Rear Delts'] },
+  { id: 'scap-pushup',        name: 'Scapular Push-Up',      category: 'mobility', type: 'bodyweight',  muscles: ['Serratus Anterior','Scapular Stabilisers'] },
+  // MOBILITY / REHAB — lower back & core control
+  { id: 'bird-dog',           name: 'Bird Dog',              category: 'mobility', type: 'bodyweight',  muscles: ['Lower Back','Core','Glutes'] },
+  { id: 'dead-bug',           name: 'Dead Bug',              category: 'mobility', type: 'bodyweight',  muscles: ['Core','Lower Back'] },
+  { id: 'cat-cow',            name: 'Cat-Cow',               category: 'mobility', type: 'bodyweight',  muscles: ['Spine','Lower Back'],            measureType: 'time' },
+  { id: 'mcgill-curlup',      name: 'McGill Curl-Up',        category: 'mobility', type: 'bodyweight',  muscles: ['Core','Lower Back'] },
+  // MOBILITY / REHAB — hip
+  { id: 'hip-flexor-stretch', name: 'Couch / Hip Flexor Stretch', category: 'mobility', type: 'bodyweight', muscles: ['Hip Flexors'],              measureType: 'time' },
+  { id: 'nine-ninety',        name: '90/90 Hip Rotation',    category: 'mobility', type: 'bodyweight',  muscles: ['Hips','Glutes'] },
+  { id: 'monster-walk',       name: 'Banded Monster Walk',   category: 'mobility', type: 'other',       muscles: ['Glute Medius','Hip Abductors'] },
+  // MOBILITY / REHAB — wrist & elbow
+  { id: 'wrist-extensor-stretch', name: 'Wrist Extensor Stretch', category: 'mobility', type: 'bodyweight', muscles: ['Forearms','Wrists'],        measureType: 'time' },
+  { id: 'eccentric-wrist-curl',   name: 'Eccentric Wrist Curl',   category: 'mobility', type: 'dumbbell',   muscles: ['Forearms','Wrists'] },
+  { id: 'wrist-circles',      name: 'Wrist Circles',         category: 'mobility', type: 'bodyweight',  muscles: ['Wrists'],                        measureType: 'time' },
+  // MOBILITY / REHAB — neck
+  { id: 'chin-tuck',          name: 'Chin Tuck',             category: 'mobility', type: 'bodyweight',  muscles: ['Deep Neck Flexors'] },
+  { id: 'upper-trap-stretch', name: 'Upper Trap Stretch',    category: 'mobility', type: 'bodyweight',  muscles: ['Upper Traps','Neck'],            measureType: 'time' },
+  { id: 'scap-retraction',    name: 'Scapular Retraction',   category: 'mobility', type: 'other',       muscles: ['Rhomboids','Mid Traps'] },
+  // MOBILITY / REHAB — ankle
+  { id: 'eccentric-heel-drop',name: 'Eccentric Heel Drop',   category: 'mobility', type: 'bodyweight',  muscles: ['Calves','Achilles'] },
+  { id: 'ankle-alphabet',     name: 'Ankle Alphabet',        category: 'mobility', type: 'bodyweight',  muscles: ['Ankles'],                        measureType: 'time' },
+  { id: 'single-leg-balance', name: 'Single-Leg Balance',    category: 'mobility', type: 'bodyweight',  muscles: ['Ankles','Core'],                 measureType: 'time' },
 ];
 
 const EXERCISE_CATEGORIES = {

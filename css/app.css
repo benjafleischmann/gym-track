@@ -1129,6 +1129,133 @@ canvas { display: block; max-width: 100%; }
 .friends-empty-title { font-size: .95rem; font-weight: 600; color: var(--txt2); }
 .friends-empty-sub   { font-size: .78rem; line-height: 1.5; max-width: 280px; }
 
+/* ─── Assessment / onboarding wizard ───────────────────────────────────────── */
+/* The wizard reuses .onboarding-screen, which pins content to the top and
+   bottom of the viewport. The later steps carry real forms, so give them room
+   and cancel the screen-edge padding the shared .form-row adds. */
+.onboarding-screen { gap: 1rem; }
+.onboarding-screen .form-group { padding-left: 0; padding-right: 0; }
+.onboarding-screen .form-row .form-group:first-child { padding-left: 0; }
+.onboarding-screen .form-row .form-group:last-child  { padding-right: 0; }
+
+.step-dot.done { background: var(--accent); opacity: .4; }
+
+.ob-chips { gap: .45rem; }
+.ob-chips .chip { padding: .6rem 1rem; font-size: .85rem; }
+
+.ob-nav { display: flex; gap: .5rem; margin-top: 1rem; }
+.ob-nav .btn { flex: 1; }
+.ob-nav .ob-back { flex: 0 0 30%; border: 1px solid var(--border); }
+
+.injury-detail {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg2);
+  padding: .7rem;
+  margin-top: .5rem;
+}
+.injury-detail.hidden { display: none; }
+.injury-detail-head {
+  font-size: .78rem; font-weight: 700; color: var(--accent);
+  text-transform: uppercase; letter-spacing: .4px; margin-bottom: .45rem;
+}
+.injury-tx .chip { padding: .35rem .7rem; font-size: .74rem; }
+
+/* Feasibility verdict. Colour carries the meaning, so the heading always
+   repeats it in words for anyone who cannot rely on colour alone. */
+.feasibility {
+  border-radius: var(--radius-sm);
+  padding: .75rem .85rem;
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  margin-top: .5rem;
+}
+.feasibility.muted { color: var(--txt3); font-size: .8rem; }
+.feasibility.ok    { border-color: rgba(52,199,89,.45);  background: rgba(52,199,89,.08); }
+.feasibility.warn  { border-color: rgba(255,159,10,.45); background: rgba(255,159,10,.08); }
+.feasibility.bad   { border-color: rgba(255,69,58,.45);  background: rgba(255,69,58,.08); }
+.feasibility-head  { font-size: .85rem; font-weight: 700; margin-bottom: .2rem; }
+.feasibility.ok   .feasibility-head { color: #34c759; }
+.feasibility.warn .feasibility-head { color: #ff9f0a; }
+.feasibility.bad  .feasibility-head { color: #ff453a; }
+.feasibility-body { font-size: .8rem; color: var(--txt2); line-height: 1.5; }
+.feasibility-fix  { margin-top: .5rem; border: 1px solid var(--border); width: auto; padding: .4rem .8rem; }
+
+/* ─── Recommended tab ──────────────────────────────────────────────────────── */
+.rec-objective { margin-bottom: .75rem; }
+
+.rec-plan-card {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, rgba(252,76,2,.10), var(--bg2));
+  padding: .9rem;
+  margin-bottom: .6rem;
+  cursor: pointer;
+}
+.rec-plan-head { display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem; }
+.rec-eyebrow {
+  font-size: .68rem; font-weight: 700; letter-spacing: .6px;
+  text-transform: uppercase; color: var(--accent);
+}
+.rec-plan-name { font-size: 1.05rem; font-weight: 800; margin-top: .15rem; }
+.rec-plan-go   { color: var(--txt3); flex-shrink: 0; }
+.rec-plan-desc { font-size: .8rem; color: var(--txt2); line-height: 1.5; margin-top: .35rem; }
+.rec-plan-days { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .6rem; }
+.rec-day-pill {
+  font-size: .7rem; font-weight: 600; color: var(--txt2);
+  background: var(--bg3); border-radius: 20px; padding: .25rem .6rem;
+}
+
+.rec-note {
+  font-size: .78rem; line-height: 1.5; color: var(--txt2);
+  border-radius: var(--radius-sm); padding: .6rem .7rem; margin-bottom: .4rem;
+  border-left: 3px solid var(--bg4); background: var(--bg2);
+}
+.rec-note.warn { border-left-color: #ff9f0a; }
+.rec-note.info { border-left-color: var(--accent); }
+
+.rec-alts-head {
+  font-size: .72rem; font-weight: 700; letter-spacing: .5px;
+  text-transform: uppercase; color: var(--txt3); margin: 1rem 0 .5rem;
+}
+.rec-score {
+  width: 44px; height: 44px; flex-shrink: 0; margin-right: .75rem;
+  border-radius: var(--radius-sm); background: var(--bg3);
+  display: flex; align-items: center; justify-content: center;
+  font-size: .9rem; font-weight: 800; color: var(--accent);
+}
+
+.rec-footer { margin: 1rem 0 .5rem; }
+.rec-disclaimer { font-size: .7rem; color: var(--txt3); line-height: 1.5; margin-top: .6rem; }
+
+/* Suggested load and injury guidance inside a routine's exercise list */
+.sugg-kg  { color: var(--accent); font-weight: 700; }
+.sugg-rir { color: var(--txt3); font-style: italic; }
+.routine-ex.is-prep { border-style: dashed; }
+.prep-tag {
+  font-size: .62rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .4px; color: var(--txt3); background: var(--bg3);
+  border-radius: 20px; padding: .1rem .45rem; margin-left: .35rem;
+  vertical-align: middle;
+}
+.ex-caution { font-size: .72rem; color: #ff9f0a; line-height: 1.45; margin-top: .25rem; }
+
+/* ─── Profile: assessment summary ──────────────────────────────────────────── */
+.assess-card {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg2); padding: .8rem;
+}
+.assess-card.empty { font-size: .8rem; color: var(--txt2); line-height: 1.5; }
+.assess-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem .75rem; }
+.assess-grid span   { display: block; font-size: .68rem; color: var(--txt3); text-transform: uppercase; letter-spacing: .4px; }
+.assess-grid strong { display: block; font-size: .85rem; font-weight: 700; margin-top: .1rem; }
+.assess-injuries { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .7rem; }
+.injury-pill {
+  font-size: .7rem; font-weight: 600; color: #ff9f0a;
+  background: rgba(255,159,10,.12); border-radius: 20px; padding: .25rem .6rem;
+}
+.assess-when { font-size: .68rem; color: var(--txt3); margin-top: .7rem; }
+
 /* ─── Misc ─────────────────────────────────────────────────────────────────── */
 .text-accent  { color: var(--accent); }
 .text-muted   { color: var(--txt2); }

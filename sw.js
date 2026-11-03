@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gymtrack-v16';
+const CACHE_NAME = 'gymtrack-v17';
 const IMG_CACHE  = 'gymtrack-exercise-images';
 const IMG_HOST   = 'cdn.jsdelivr.net';
 const ASSETS = [
@@ -10,6 +10,7 @@ const ASSETS = [
   './js/exercises.js',
   './js/exercise-library.js',
   './js/firebase.js',
+  './js/recommend.js',
   './js/app.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
