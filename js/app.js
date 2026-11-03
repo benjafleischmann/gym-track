@@ -16,6 +16,19 @@ const App = {
 
   // ── Boot ───────────────────────────────────────────────────────────────────
   init() {
+    // Fold the generated photo library in behind the hand-written exercises.
+    // Hand-written ones come first so they win in search and keep their ids,
+    // which routines and already-logged workouts reference.
+    if (typeof EXERCISE_LIBRARY !== 'undefined' && !EXERCISES.some(e => e.id.startsWith('x-'))) {
+      // Give the hand-written entries a reference photo where the dataset has
+      // one, using the same loose name key the generator matched on.
+      const key = n => n.toLowerCase().replace(/[-/]/g, ' ').replace(/\b(db|bb|kb)\b/g, '')
+                        .replace(/[^a-z0-9 ]/g, '').split(/\s+/).filter(Boolean).join(' ');
+      EXERCISES.forEach(e => { if (!e.image) e.image = EXERCISE_PHOTOS[key(e.name)]; });
+
+      EXERCISES.push(...EXERCISE_LIBRARY);
+    }
+
     // Recover crash-persisted active workout
     const saved = DB.getActiveWorkout();
     if (saved) this.state.activeWorkout = saved;
@@ -1834,6 +1847,12 @@ const App = {
           <div class="cat-header">${info.name}</div>
           ${exs.map(ex => `
             <div class="exercise-list-item">
+              <div class="exercise-thumb${ex.image ? '' : ' exercise-thumb-fallback'}" data-action="pick-exercise" data-id="${ex.id}">
+                ${ex.image
+                  ? `<img src="${EXERCISE_IMAGE_BASE}${ex.image}" alt="" loading="lazy" decoding="async"
+                         onerror="this.parentNode.classList.add('exercise-thumb-fallback');this.remove()">`
+                  : ''}
+              </div>
               <div data-action="pick-exercise" data-id="${ex.id}" style="flex:1;min-width:0">
                 <div class="exercise-list-item-name">${ex.name}</div>
                 <div class="exercise-list-item-sub">${ex.muscles.join(', ')}</div>
