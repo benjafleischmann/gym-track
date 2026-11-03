@@ -2955,10 +2955,16 @@ const App = {
 
   _capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); },
 
+  // Reference photo where the dataset has one, emoji by category otherwise.
+  // The <img> fills the .list-item-icon box and removes itself if the CDN
+  // fails, leaving the emoji underneath visible.
   _exIcon(exerciseId) {
-    const cat = getExercise(exerciseId)?.category || '';
+    const ex  = getExercise(exerciseId);
     const map = { chest:'🏋️', back:'💪', shoulders:'🔼', arms:'💪', legs:'🦵', core:'⚡', hyrox:'🏅', crossfit:'🔥', cardio:'🏃', boxing:'🥊', fitness_class:'🧘' };
-    return map[cat] || '💪';
+    const emoji = map[ex?.category] || '💪';
+    if (!ex || !ex.image) return emoji;
+    return `${emoji}<img src="${EXERCISE_IMAGE_BASE}${ex.image}" alt="" loading="lazy" decoding="async"
+                        onerror="this.remove()">`;
   },
 
   _toast(msg, type = '') {

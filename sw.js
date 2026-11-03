@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gymtrack-v17';
+const CACHE_NAME = 'gymtrack-v18';
 const IMG_CACHE  = 'gymtrack-exercise-images';
 const IMG_HOST   = 'cdn.jsdelivr.net';
 const ASSETS = [
