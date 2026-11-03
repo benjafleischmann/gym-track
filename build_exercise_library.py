@@ -153,7 +153,12 @@ def main():
             continue
 
         primary = e.get('primaryMuscles') or []
-        cat = next((CAT_MAP[m] for m in primary if m in CAT_MAP), None)
+        # The dataset files every cardio machine under 'quadriceps', which would
+        # bucket treadmills and rowers with leg presses and log them as weight x
+        # reps. Trust the dataset's own category instead and mark them distance-
+        # measured so the app offers km / time / HR / calories.
+        is_cardio = e.get('category') == 'cardio'
+        cat = 'cardio' if is_cardio else next((CAT_MAP[m] for m in primary if m in CAT_MAP), None)
         if not cat:
             continue
 
@@ -179,10 +184,11 @@ def main():
             'id': eid,
             'name': name,
             'category': cat,
-            'type': TYPE_MAP.get(e.get('equipment'), 'other'),
+            'type': 'cardio' if is_cardio else TYPE_MAP.get(e.get('equipment'), 'other'),
             'muscles': muscles or ['Full Body'],
             'image': e['images'][0],
             'level': e.get('level') or 'beginner',
+            'measureType': 'distance' if is_cardio else None,
         })
 
     # Photos for the hand-written exercises. Exact normalised name first; then a
@@ -233,10 +239,12 @@ def main():
     ]
     for x in out:
         muscles = ','.join(f"'{esc(m)}'" for m in x['muscles'])
+        measure = f", measureType: '{x['measureType']}'" if x['measureType'] else ''
         lines.append(
             f"  {{ id: '{x['id']}', name: '{esc(x['name'])}', "
             f"category: '{x['category']}', type: '{x['type']}', "
-            f"muscles: [{muscles}], image: '{esc(x['image'])}', level: '{x['level']}' }},"
+            f"muscles: [{muscles}], image: '{esc(x['image'])}', "
+            f"level: '{x['level']}'{measure} }},"
         )
     lines += [
         '];',

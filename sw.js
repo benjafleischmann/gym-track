@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gymtrack-v14';
+const CACHE_NAME = 'gymtrack-v15';
 const IMG_CACHE  = 'gymtrack-exercise-images';
 const IMG_HOST   = 'cdn.jsdelivr.net';
 const ASSETS = [
@@ -61,9 +61,13 @@ self.addEventListener('fetch', (e) => {
   // point at every other asset, so serving it from cache pins the whole app to
   // an old build and no amount of version bumping can ever reach the device.
   // Falls back to the cached copy when offline, which is the case that matters.
+  //
+  // `cache: 'no-store'` is the important part: a plain fetch() still reads the
+  // browser's HTTP cache, so a Cache-Control max-age on index.html would keep
+  // replaying the old build here even though this handler asks the network.
   if (e.request.mode === 'navigate') {
     e.respondWith(
-      fetch(e.request)
+      fetch(new Request(e.request.url, { cache: 'no-store', credentials: 'same-origin' }))
         .then(res => {
           const copy = res.clone();
           caches.open(CACHE_NAME).then(c => c.put('./index.html', copy));
