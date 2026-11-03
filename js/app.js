@@ -80,7 +80,14 @@ const App = {
     });
 
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js').catch(() => {});
+      navigator.serviceWorker.register('./sw.js').then(reg => {
+        // An installed PWA can sit on one process for days, so ask for a fresh
+        // sw.js on launch and whenever it comes back to the foreground.
+        reg.update().catch(() => {});
+        document.addEventListener('visibilitychange', () => {
+          if (!document.hidden) reg.update().catch(() => {});
+        });
+      }).catch(() => {});
     }
   },
 
@@ -150,8 +157,22 @@ const App = {
     const s = this.state.screen;
     if (s === 'dashboard')       { this._initCharts(['weekly-volume','body-weight-mini']); }
     if (s === 'active-workout')  { this._startWorkoutTimer(); }
-    if (s === 'profile')         { this._initCharts(['body-weight-chart','body-fat-chart']); this._loadFriendsSection(); }
+    if (s === 'profile')         { this._initCharts(['body-weight-chart','body-fat-chart']); this._loadFriendsSection(); this._showBuildId(); }
     if (s === 'history')         { this._renderCalendar(); }
+  },
+
+  // Reads the build straight off the service worker's cache name, so the label
+  // reflects the code actually running on the device rather than a constant
+  // that a stale cache would happily keep showing.
+  async _showBuildId() {
+    const el = document.getElementById('build-id');
+    if (!el) return;
+    try {
+      const name = (await caches.keys()).find(k => /^gymtrack-v\d+$/.test(k));
+      el.textContent = name ? name.replace('gymtrack-', '') : 'not cached';
+    } catch {
+      el.textContent = 'unknown';
+    }
   },
 
   _destroyCharts() {
@@ -813,6 +834,10 @@ const App = {
         <div id="friends-list-container">
           <div style="padding:1.25rem 1rem;text-align:center;color:var(--txt3);font-size:.82rem">Loading…</div>
         </div>`}
+
+        <div style="padding:1.5rem 1rem 1rem;text-align:center;color:var(--txt3);font-size:.72rem">
+          GymTrack · build <span id="build-id">…</span>
+        </div>
 
       </div>`;
     },

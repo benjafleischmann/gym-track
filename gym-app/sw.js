@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gymtrack-v12';
+const CACHE_NAME = 'gymtrack-v13';
 const IMG_CACHE  = 'gymtrack-exercise-images';
 const IMG_HOST   = 'cdn.jsdelivr.net';
 const ASSETS = [
@@ -53,6 +53,23 @@ self.addEventListener('fetch', (e) => {
           }).catch(() => cached)
         )
       )
+    );
+    return;
+  }
+
+  // The page itself is network-first. It carries the ?v= query strings that
+  // point at every other asset, so serving it from cache pins the whole app to
+  // an old build and no amount of version bumping can ever reach the device.
+  // Falls back to the cached copy when offline, which is the case that matters.
+  if (e.request.mode === 'navigate') {
+    e.respondWith(
+      fetch(e.request)
+        .then(res => {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then(c => c.put('./index.html', copy));
+          return res;
+        })
+        .catch(() => caches.match('./index.html').then(c => c || caches.match('./')))
     );
     return;
   }
