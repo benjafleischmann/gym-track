@@ -12,6 +12,9 @@ const App = {
     activeTab: {},        // screen → active tab index
     exercisePickerCb: null,
     confirmCb: null,
+    progressRange: 90,    // days shown on the Progress charts; null = all time
+    progressExerciseId: null,
+    progressRoutineId: null,
   },
 
   // ── Boot ───────────────────────────────────────────────────────────────────
@@ -147,11 +150,11 @@ const App = {
       case 'dashboard':       app.innerHTML = this.screens.dashboard();       break;
       case 'workout':         app.innerHTML = this.screens.workoutPicker();   break;
       case 'active-workout':  app.innerHTML = this.screens.activeWorkout();   break;
-      case 'workout-complete':app.innerHTML = this.screens.workoutComplete(params.workout); break;
+      case 'workout-complete':app.innerHTML = this.screens.workoutComplete(params.workout, params.prs); break;
       case 'routines':        app.innerHTML = this.screens.routines();        break;
       case 'routine-detail':  app.innerHTML = this.screens.routineDetail(params.routineId); break;
       case 'create-routine':  app.innerHTML = this.screens.createRoutine(params.routineId); break;
-      case 'history':         app.innerHTML = this.screens.history();         break;
+      case 'progress':        app.innerHTML = this.screens.progress();        break;
       case 'workout-detail':  app.innerHTML = this.screens.workoutDetail(params.workoutId); break;
       case 'profile':         app.innerHTML = this.screens.profile();         break;
       case 'log-metric':      app.innerHTML = this.screens.logMetric();       break;
@@ -165,8 +168,13 @@ const App = {
     const s = this.state.screen;
     if (s === 'dashboard')       { this._initCharts(['weekly-volume','body-weight-mini']); }
     if (s === 'active-workout')  { this._startWorkoutTimer(); }
-    if (s === 'profile')         { this._initCharts(['body-weight-chart','body-fat-chart']); this._loadFriendsSection(); this._showBuildId(); }
-    if (s === 'history')         { this._renderCalendar(); }
+    if (s === 'profile')         { this._loadFriendsSection(); this._showBuildId(); }
+    if (s === 'progress') {
+      const tab = this.state.activeTab['progress'] || 0;
+      if (tab === 0) this._renderCalendar();
+      if (tab === 1) this._initCharts(['exercise-progress','muscle-volume']);
+      if (tab === 2) this._initCharts(['body-weight-chart','body-fat-chart','goal-trajectory']);
+    }
   },
 
   // Reads the build straight off the service worker's cache name, so the label
@@ -254,7 +262,7 @@ const App = {
 
         <div class="section-header">
           <h2>Recent Workouts</h2>
-          <button data-action="nav" data-screen="history">See all</button>
+          <button data-action="nav" data-screen="progress">See all</button>
         </div>
 
         ${recent.length ? recent.map(w => App._workoutCard(w)).join('') : `
@@ -350,7 +358,7 @@ const App = {
     },
 
     // ── Workout Complete ──────────────────────────────────────────────────────
-    workoutComplete(w) {
+    workoutComplete(w, prs = []) {
       if (!w) return App.screens.dashboard();
       const duration = App._fmtDuration(
         (new Date(w.completedAt) - new Date(w.startedAt)) / 1000
@@ -380,6 +388,20 @@ const App = {
             <div class="lbl">Sets done</div>
           </div>
         </div>
+
+        ${prs.length ? `
+        <div class="section-header"><h2>New Records</h2></div>
+        <div style="padding:0 1rem">
+          ${prs.map(p => `
+            <div class="pr-banner">
+              <span class="pr-banner-icon">🏆</span>
+              <div>
+                <div class="pr-banner-name">${p.name}</div>
+                <div class="pr-banner-sub">${p.kind === 'weight' ? 'Heaviest set' : 'Best est. 1RM'}
+                  ${p.value} kg <span style="color:var(--txt3)">· was ${Math.round(p.previous * 10) / 10} kg</span></div>
+              </div>
+            </div>`).join('')}
+        </div>` : ''}
 
         <div class="section-header"><h2>Exercise Summary</h2></div>
         ${w.exercises.map(ex => {
@@ -594,44 +616,33 @@ const App = {
       </div>`;
     },
 
-    // ── History ───────────────────────────────────────────────────────────────
-    history() {
-      const now = new Date();
-      const workouts = DB.getRecentWorkouts(50);
-
+    // ── Progress ──────────────────────────────────────────────────────────────
+    progress() {
+      const tab = App.state.activeTab['progress'] || 0;
       return `
       <div class="screen">
         <div class="screen-header">
-          <h1>History</h1>
-          <button class="btn btn-sm btn-ghost" data-action="new-past-workout">+ Log</button>
+          <h1>Progress</h1>
+          ${tab === 0 ? `<button class="btn btn-sm btn-ghost" data-action="new-past-workout">+ Log</button>` : ''}
+          ${tab === 2 ? `<button class="btn btn-sm btn-ghost" data-action="nav" data-screen="log-metric">+ Log</button>` : ''}
         </div>
 
-        <div id="calendar-section">
-          <div class="calendar-header">
-            <button class="cal-nav" data-action="cal-prev">${App._icon('chevron-left')}</button>
-            <h3 id="cal-month-label"></h3>
-            <button class="cal-nav" data-action="cal-next">${App._icon('chevron-right')}</button>
-          </div>
-          <div class="calendar-grid" id="cal-grid"></div>
+        <div class="tab-bar">
+          <button class="tab-btn ${tab===0?'active':''}" data-action="set-tab" data-screen="progress" data-tab="0">Calendar</button>
+          <button class="tab-btn ${tab===1?'active':''}" data-action="set-tab" data-screen="progress" data-tab="1">Strength</button>
+          <button class="tab-btn ${tab===2?'active':''}" data-action="set-tab" data-screen="progress" data-tab="2">Body</button>
         </div>
 
-        <div class="section-header"><h2>Workouts</h2></div>
-        <div id="history-list">
-          ${workouts.length
-            ? workouts.map(w => App._workoutCard(w)).join('')
-            : `<div class="empty-state">
-                <div class="empty-state-icon">📅</div>
-                <div class="empty-state-title">No workouts recorded</div>
-                <div class="empty-state-text">Complete your first workout and it'll appear here.</div>
-               </div>`}
-        </div>
+        ${tab === 0 ? App._progressCalendarTab()
+          : tab === 1 ? App._progressStrengthTab()
+          : App._progressBodyTab()}
       </div>`;
     },
 
     // ── Workout Detail ────────────────────────────────────────────────────────
     workoutDetail(workoutId) {
       const w = DB.getWorkout(workoutId);
-      if (!w) return App.screens.history();
+      if (!w) return App.screens.progress();
 
       const durationSecs = App._workoutDuration(w);
       const duration = durationSecs ? App._fmtDuration(durationSecs) : '—';
@@ -733,16 +744,6 @@ const App = {
       const name       = profile.name || 'Athlete';
       const initial    = name[0].toUpperCase();
 
-      // Delta: compare the two most recent entries within the last 30 days only
-      const chart30    = DB.getBodyMetricsLastNDays(30);
-      const chartFirst = chart30[chart30.length - 1] || null; // oldest in window
-      const chartLast  = chart30[0] || null;                  // newest in window
-      const prev       = chartFirst !== chartLast ? chartFirst : null;
-      const deltaW  = (chartLast && prev && chartLast.weight && prev.weight)
-        ? (chartLast.weight - prev.weight).toFixed(1) : null;
-      const deltaBF = (chartLast && prev && chartLast.bodyFat && prev.bodyFat)
-        ? (chartLast.bodyFat - prev.bodyFat).toFixed(1) : null;
-
       const fbName  = Firebase.ready ? Firebase.userName : null;
       const fbPhoto = Firebase.ready ? Firebase.userPhoto : null;
       const displayName = fbName || name;
@@ -812,62 +813,26 @@ const App = {
         </div>
 
         <!-- ── Body Metrics ── -->
+        <!-- Charts and history live on Progress → Body; this is just the entry
+             point so the same data isn't rendered twice. -->
         <div class="section-header" style="margin-top:.75rem">
           <h2>Body Metrics</h2>
           <button class="btn btn-sm btn-ghost" data-action="log-metric">+ Log</button>
         </div>
 
-        <div class="chart-wrap">
-          <div class="chart-card">
-            <div class="chart-card-header">
-              <span class="chart-card-title">Weight (last 30 days)</span>
-              ${deltaW !== null ? `<span style="font-size:.8rem;color:${parseFloat(deltaW)<0?'var(--green)':'var(--red)'};text-align:right">
-                ${parseFloat(deltaW) > 0 ? '+' : ''}${deltaW} kg<br>
-                <span style="font-size:.68rem;color:var(--txt3)">vs ${App._fmtDateShort(new Date(chartFirst.date))}</span>
-              </span>` : ''}
-            </div>
-            <canvas id="body-weight-chart" height="120"></canvas>
-          </div>
-        </div>
-
-        ${latest?.bodyFat ? `
-        <div class="chart-wrap" style="margin-top:.75rem">
-          <div class="chart-card">
-            <div class="chart-card-header">
-              <span class="chart-card-title">Body Fat % (last 30 days)</span>
-              ${deltaBF !== null ? `<span style="font-size:.8rem;color:${parseFloat(deltaBF)<0?'var(--green)':'var(--red)'}">
-                ${parseFloat(deltaBF) > 0 ? '+' : ''}${deltaBF}%</span>` : ''}
-            </div>
-            <canvas id="body-fat-chart" height="100"></canvas>
-          </div>
-        </div>` : ''}
-
-        ${latest ? `
-        <div style="margin:.5rem 1rem 0">
-          <div class="exercise-block">
-            <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--txt3);margin-bottom:.5rem">${App._fmtDateFull(new Date(latest.date))}</div>
-            ${App._metricRows(latest)}
-          </div>
-        </div>` : `
-        <div class="empty-state">
-          <div class="empty-state-icon">⚖️</div>
-          <div class="empty-state-title">No measurements yet</div>
-          <div class="empty-state-text">Log your first body metrics to start tracking progress.</div>
-          <button class="btn btn-primary" style="margin-top:.5rem;width:auto;padding:.7rem 2rem" data-action="log-metric">Log Now</button>
-        </div>`}
-
-        ${metrics.length > 1 ? `
-        <div class="section-header"><h2>Metric History</h2></div>
-        ${metrics.slice(0, 10).map(m => `
-          <div class="list-item" style="padding:.65rem 1rem">
-            <div>
-              <div style="font-size:.85rem;font-weight:600">${App._fmtDateFull(new Date(m.date))}</div>
-              <div style="font-size:.78rem;color:var(--txt2)">
-                ${m.weight ? m.weight + ' kg' : ''}${m.bodyFat ? ' · ' + m.bodyFat + '% BF' : ''}
+        <div style="padding:0 1rem">
+          <div class="list-item" style="border-radius:var(--radius);border:1px solid var(--border)"
+               data-action="open-body-progress">
+            <div class="list-item-left">
+              <div class="list-item-icon">⚖️</div>
+              <div>
+                <div class="list-item-name">${latest ? `${latest.weight ? latest.weight + ' kg' : '—'}${latest.bodyFat ? ` · ${latest.bodyFat}% BF` : ''}` : 'No measurements yet'}</div>
+                <div class="list-item-sub">${latest ? `Last logged ${App._fmtDateFull(new Date(latest.date))}` : 'Log your weight to start tracking'}</div>
               </div>
             </div>
-            <button style="color:var(--red);font-size:.8rem" data-action="delete-metric" data-id="${m.id}">Delete</button>
-          </div>`).join('')}` : ''}
+            ${App._icon('chevron-right', 18)}
+          </div>
+        </div>
 
         <!-- ── Friends ── -->
         <div class="section-header" style="margin-top:.75rem">
@@ -959,7 +924,7 @@ const App = {
     // ── Log Past Workout ──────────────────────────────────────────────────────
     logPastWorkout() {
       const draft = App.state.pastWorkoutDraft;
-      if (!draft) return App.screens.history();
+      if (!draft) return App.screens.progress();
       const maxDate = new Date().toISOString().slice(0, 10);
       const isEdit = !!draft.editId;
 
@@ -1513,6 +1478,9 @@ const App = {
       if (notesEl) w.notes = notesEl.value;
 
       w.completedAt = new Date().toISOString();
+      // Must run before the workout is saved, otherwise it compares against
+      // itself and nothing ever counts as a record.
+      const prs = DB.detectPRs(w);
       DB.saveWorkout(w);
       Firebase.onReady(() => Firebase.syncWorkout(w).catch(() => {}));
       DB.saveActiveWorkout(null);
@@ -1520,7 +1488,7 @@ const App = {
       App._stopWorkoutTimer();
       App._stopRestTimer();
       App.state.activeWorkout = null;
-      App.navigate('workout-complete', { workout: w });
+      App.navigate('workout-complete', { workout: w, prs });
     },
 
     discard() {
@@ -1654,8 +1622,76 @@ const App = {
         });
       }
 
+      if (id === 'exercise-progress') {
+        const exId = App._progressExerciseId();
+        const hist = exId ? DB.getExerciseHistory(exId, App.state.progressRange) : [];
+        if (hist.length < 2) return;
+        this.state.charts[id] = new Chart(canvas, {
+          type: 'line',
+          data: {
+            labels: hist.map(h => App._fmtDateShort(new Date(h.date))),
+            datasets: [
+              { label: 'Top set (kg)', data: hist.map(h => h.topWeight),
+                borderColor: accent, borderWidth: 2.5, pointRadius: 3,
+                pointBackgroundColor: accent, tension: .3 },
+              // Estimated 1RM reads through a lighter day at higher reps, which
+              // a top-set line alone would show as going backwards.
+              { label: 'Est. 1RM (kg)', data: hist.map(h => h.est1RM),
+                borderColor: green, borderWidth: 2, borderDash: [4, 3],
+                pointRadius: 0, tension: .3 }
+            ]
+          },
+          options: { ...baseOpts, plugins: { ...baseOpts.plugins, legend: { display: true, labels: { color: txtCol, boxWidth: 10, font: { size: 10 } } } } }
+        });
+      }
+
+      if (id === 'muscle-volume') {
+        const data = DB.getWeeklySetsByMuscle(4).slice(0, 10);
+        if (!data.length) return;
+        this.state.charts[id] = new Chart(canvas, {
+          type: 'bar',
+          data: {
+            labels: data.map(d => d.muscle),
+            datasets: [{
+              data: data.map(d => Math.round(d.sets * 10) / 10),
+              // 10 sets a week is the benchmark the plan builder uses, so the
+              // bar colour says at a glance which muscles clear it.
+              backgroundColor: data.map(d => d.sets >= 10 ? 'rgba(48,209,88,.55)' : 'rgba(252,76,2,.45)'),
+              borderRadius: 4,
+              borderSkipped: false,
+            }]
+          },
+          options: {
+            ...baseOpts,
+            indexAxis: 'y',
+            scales: {
+              x: { grid: { color: gridCol }, ticks: { color: txtCol, font: { size: 10 } }, beginAtZero: true },
+              y: { grid: { display: false }, ticks: { color: txtCol, font: { size: 10 } } }
+            }
+          }
+        });
+      }
+
+      if (id === 'goal-trajectory') {
+        const t = App._goalTrajectory();
+        if (!t) return;
+        this.state.charts[id] = new Chart(canvas, {
+          type: 'line',
+          data: {
+            labels: t.labels,
+            datasets: [
+              { label: 'Planned', data: t.planned, borderColor: txtCol, borderWidth: 1.5,
+                borderDash: [5, 4], pointRadius: 0, tension: 0 },
+              { label: 'Actual', data: t.actual, borderColor: accent, borderWidth: 2.5,
+                pointRadius: 3, pointBackgroundColor: accent, spanGaps: true, tension: .3 }
+            ]
+          },
+          options: { ...baseOpts, plugins: { ...baseOpts.plugins, legend: { display: true, labels: { color: txtCol, boxWidth: 10, font: { size: 10 } } } } }
+        });
+      }
+
       if (id === 'body-weight-chart') {
-        const metrics = DB.getBodyMetricsLastNDays(30).reverse();
+        const metrics = DB.getBodyMetricsLastNDays(App.state.progressRange || 36500).reverse();
         if (!metrics.length) return;
         this.state.charts[id] = new Chart(canvas, {
           type: 'line',
@@ -1678,7 +1714,7 @@ const App = {
       }
 
       if (id === 'body-fat-chart') {
-        const metrics = DB.getBodyMetricsLastNDays(30).reverse().filter(m => m.bodyFat);
+        const metrics = DB.getBodyMetricsLastNDays(App.state.progressRange || 36500).reverse().filter(m => m.bodyFat);
         if (!metrics.length) return;
         this.state.charts[id] = new Chart(canvas, {
           type: 'line',
@@ -1836,6 +1872,20 @@ const App = {
         break;
       case 'set-tab':
         this.state.activeTab[el.dataset.screen] = parseInt(el.dataset.tab);
+        // Switching tabs swaps the canvases out, so the old Chart instances
+        // have to be torn down or they leak and re-attach to dead nodes.
+        this._destroyCharts();
+        this._render();
+        break;
+
+      // Progress
+      case 'open-body-progress':
+        this.state.activeTab['progress'] = 2;
+        this.navigate('progress');
+        break;
+      case 'progress-range':
+        this.state.progressRange = el.dataset.days ? parseInt(el.dataset.days) : null;
+        this._destroyCharts();
         this._render();
         break;
 
@@ -1999,7 +2049,7 @@ const App = {
           const _wid = el.dataset.id;
           DB.deleteWorkout(_wid);
           Firebase.onReady(() => Firebase.deleteWorkout(_wid).catch(() => {}));
-          this.navigate('history');
+          this.navigate('progress');
         }, 'Delete', true);
         break;
 
@@ -2183,7 +2233,20 @@ const App = {
     }
   },
 
-  _handleChange(e) { /* used for selects if needed */ },
+  _handleChange(e) {
+    const el = e.target.closest('[data-action]');
+    if (!el) return;
+    if (el.dataset.action === 'pick-progress-exercise') {
+      this.state.progressExerciseId = el.value;
+      this._destroyCharts();
+      this._render();
+    }
+    if (el.dataset.action === 'pick-progress-routine') {
+      this.state.progressRoutineId = el.value;
+      this._destroyCharts();
+      this._render();
+    }
+  },
 
   // ── Modal Handlers ─────────────────────────────────────────────────────────
   _handleModalClick(e) {
@@ -2537,7 +2600,7 @@ const App = {
     if (isEdit) {
       this.navigate('workout-detail', { workoutId: workout.id });
     } else {
-      this.navigate('history');
+      this.navigate('progress');
     }
   },
 
@@ -2577,9 +2640,9 @@ const App = {
     const map = {
       'routine-detail':  'routines',
       'create-routine':  'routines',
-      'workout-detail':  'history',
+      'workout-detail':  'progress',
       'log-metric':      'profile',
-      'log-past-workout':'history',
+      'log-past-workout':'progress',
       'active-workout':  'workout',
     };
     return map[this.state.screen] || 'dashboard';
@@ -2707,6 +2770,289 @@ const App = {
         <button class="btn btn-ghost" style="border:1px solid var(--border)" data-action="retake-assessment">Update my answers</button>
         <div class="rec-disclaimer">Starting weights are estimates from published strength standards, deliberately on the light side. They adjust as you log sets. Not medical advice — if an injury is being treated, check with your clinician first.</div>
       </div>`;
+  },
+
+  // ── Progress tabs ──────────────────────────────────────────────────────────
+  PROGRESS_RANGES: [
+    { days: 30,   label: '1M' },
+    { days: 90,   label: '3M' },
+    { days: 365,  label: '1Y' },
+    { days: null, label: 'All' },
+  ],
+
+  _rangeSelector() {
+    const cur = App.state.progressRange;
+    return `<div class="range-bar">
+      ${App.PROGRESS_RANGES.map(r => `
+        <button class="range-btn ${r.days === cur ? 'active' : ''}"
+                data-action="progress-range" data-days="${r.days === null ? '' : r.days}">${r.label}</button>`).join('')}
+    </div>`;
+  },
+
+  // Falls back to the most-trained exercise so the chart has something to show
+  // before the user has picked anything.
+  _progressExerciseId() {
+    const tracked = DB.getTrackedExercises();
+    if (!tracked.length) return null;
+    const picked = App.state.progressExerciseId;
+    if (picked && tracked.some(t => t.id === picked)) return picked;
+    return tracked[0].id;
+  },
+
+  _progressCalendarTab() {
+    const workouts = DB.getRecentWorkouts(50);
+    return `
+      <div id="calendar-section">
+        <div class="calendar-header">
+          <button class="cal-nav" data-action="cal-prev">${App._icon('chevron-left')}</button>
+          <h3 id="cal-month-label"></h3>
+          <button class="cal-nav" data-action="cal-next">${App._icon('chevron-right')}</button>
+        </div>
+        <div class="calendar-grid" id="cal-grid"></div>
+      </div>
+
+      <div class="section-header"><h2>Workouts</h2></div>
+      <div id="history-list">
+        ${workouts.length
+          ? workouts.map(w => App._workoutCard(w)).join('')
+          : `<div class="empty-state">
+              <div class="empty-state-icon">📅</div>
+              <div class="empty-state-title">No workouts recorded</div>
+              <div class="empty-state-text">Complete your first workout and it'll appear here.</div>
+             </div>`}
+      </div>`;
+  },
+
+  _progressStrengthTab() {
+    const tracked = DB.getTrackedExercises();
+    if (!tracked.length) {
+      return `<div class="empty-state">
+        <div class="empty-state-icon">📈</div>
+        <div class="empty-state-title">Not enough data yet</div>
+        <div class="empty-state-text">Log the same exercise on two different days and its strength curve shows up here.</div>
+      </div>`;
+    }
+
+    const exId = App._progressExerciseId();
+    const hist = DB.getExerciseHistory(exId, App.state.progressRange);
+    const pr   = DB.getPR(exId);
+    const name = tracked.find(t => t.id === exId)?.name || '';
+
+    return `
+      ${App._rangeSelector()}
+
+      <div class="chart-wrap">
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <span class="chart-card-title">Strength over time</span>
+          </div>
+          <select class="form-select progress-select" data-action="pick-progress-exercise">
+            ${tracked.map(t => `<option value="${t.id}" ${t.id === exId ? 'selected' : ''}>${t.name} (${t.sessions})</option>`).join('')}
+          </select>
+          ${hist.length >= 2
+            ? `<canvas id="exercise-progress" height="150"></canvas>`
+            : `<div class="chart-empty">Only ${hist.length} session${hist.length === 1 ? '' : 's'} of ${name} in this range. Widen the range or log it again.</div>`}
+        </div>
+      </div>
+
+      ${pr ? `
+      <div class="section-header"><h2>Personal Records</h2></div>
+      <div class="pr-grid">
+        <div class="pr-card">
+          <div class="pr-val">${pr.topWeight.topWeight} kg</div>
+          <div class="pr-lbl">Heaviest set</div>
+          <div class="pr-when">${pr.topWeight.topReps} reps · ${App._fmtDateShort(new Date(pr.topWeight.date))}</div>
+        </div>
+        <div class="pr-card">
+          <div class="pr-val">${pr.est1RM.est1RM} kg</div>
+          <div class="pr-lbl">Best est. 1RM</div>
+          <div class="pr-when">${App._fmtDateShort(new Date(pr.est1RM.date))}</div>
+        </div>
+        <div class="pr-card">
+          <div class="pr-val">${App._fmtVol(pr.volume.volume)}</div>
+          <div class="pr-lbl">Best session volume</div>
+          <div class="pr-when">${App._fmtDateShort(new Date(pr.volume.date))}</div>
+        </div>
+      </div>` : ''}
+
+      ${App._routineProgressCard()}
+
+      <div class="section-header"><h2>Weekly Sets by Muscle</h2></div>
+      <div class="chart-wrap">
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <span class="chart-card-title">Average, last 4 weeks</span>
+          </div>
+          <canvas id="muscle-volume" height="200"></canvas>
+          <div class="chart-foot">Green clears the ~10 sets a week the plan builder aims for.</div>
+        </div>
+      </div>`;
+  },
+
+  // Load added to each exercise in a routine since the first time it was run.
+  _routineProgressCard() {
+    const routines = DB.getRoutines().filter(r => DB.getRoutineProgress(r.id));
+    if (!routines.length) return '';
+
+    const picked = routines.find(r => r.id === App.state.progressRoutineId) || routines[0];
+    const prog   = DB.getRoutineProgress(picked.id);
+    if (!prog || !prog.rows.length) return '';
+
+    return `
+      <div class="section-header"><h2>Routine Progression</h2></div>
+      <div class="chart-wrap">
+        <div class="chart-card">
+          ${routines.length > 1 ? `
+            <select class="form-select progress-select" data-action="pick-progress-routine">
+              ${routines.map(r => `<option value="${r.id}" ${r.id === picked.id ? 'selected' : ''}>${r.name}</option>`).join('')}
+            </select>` : `<div class="chart-card-header"><span class="chart-card-title">${picked.name}</span></div>`}
+
+          <div class="routine-prog-total">
+            <strong>${prog.totalDelta > 0 ? '+' : ''}${prog.totalDelta} kg</strong>
+            added across ${prog.rows.length} exercise${prog.rows.length === 1 ? '' : 's'} over ${prog.sessions} session${prog.sessions === 1 ? '' : 's'}
+          </div>
+
+          ${prog.rows.map(r => `
+            <div class="routine-prog-row">
+              <div class="routine-prog-name">${r.name}</div>
+              <div class="routine-prog-nums">
+                <span class="routine-prog-from">${r.first} → ${r.last} kg</span>
+                <span class="routine-prog-delta ${r.delta > 0 ? 'up' : r.delta < 0 ? 'down' : ''}">${r.delta > 0 ? '+' : ''}${r.delta} kg${r.pct ? ` (${r.pct > 0 ? '+' : ''}${r.pct}%)` : ''}</span>
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+  },
+
+  _progressBodyTab() {
+    const metrics = DB.getBodyMetrics();
+    const latest  = metrics[0] || null;
+
+    if (!latest) {
+      return `<div class="empty-state">
+        <div class="empty-state-icon">⚖️</div>
+        <div class="empty-state-title">No measurements yet</div>
+        <div class="empty-state-text">Log your weight to start tracking it against your goal.</div>
+        <button class="btn btn-primary" style="margin-top:.5rem;width:auto;padding:.7rem 2rem" data-action="log-metric">Log Now</button>
+      </div>`;
+    }
+
+    // Delta over the selected range rather than a fixed 30 days.
+    const win   = DB.getBodyMetricsLastNDays(App.state.progressRange || 36500);
+    const first = win[win.length - 1] || null;
+    const last  = win[0] || null;
+    const prev  = first !== last ? first : null;
+    const deltaW  = (last && prev && last.weight && prev.weight)
+      ? (last.weight - prev.weight).toFixed(1) : null;
+    const deltaBF = (last && prev && last.bodyFat && prev.bodyFat)
+      ? (last.bodyFat - prev.bodyFat).toFixed(1) : null;
+
+    const traj = App._goalTrajectory();
+
+    return `
+      ${App._rangeSelector()}
+
+      <div class="chart-wrap">
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <span class="chart-card-title">Weight</span>
+            ${deltaW !== null ? `<span style="font-size:.8rem;color:${parseFloat(deltaW)<0?'var(--green)':'var(--red)'};text-align:right">
+              ${parseFloat(deltaW) > 0 ? '+' : ''}${deltaW} kg<br>
+              <span style="font-size:.68rem;color:var(--txt3)">vs ${App._fmtDateShort(new Date(first.date))}</span>
+            </span>` : ''}
+          </div>
+          <canvas id="body-weight-chart" height="140"></canvas>
+        </div>
+      </div>
+
+      ${traj ? `
+      <div class="chart-wrap" style="margin-top:.75rem">
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <span class="chart-card-title">Goal trajectory</span>
+            <span class="chart-card-value">${traj.target} kg</span>
+          </div>
+          <canvas id="goal-trajectory" height="140"></canvas>
+          <div class="chart-foot">${traj.note}</div>
+        </div>
+      </div>` : ''}
+
+      ${latest.bodyFat ? `
+      <div class="chart-wrap" style="margin-top:.75rem">
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <span class="chart-card-title">Body Fat %</span>
+            ${deltaBF !== null ? `<span style="font-size:.8rem;color:${parseFloat(deltaBF)<0?'var(--green)':'var(--red)'}">
+              ${parseFloat(deltaBF) > 0 ? '+' : ''}${deltaBF}%</span>` : ''}
+          </div>
+          <canvas id="body-fat-chart" height="120"></canvas>
+        </div>
+      </div>` : ''}
+
+      <div style="margin:.75rem 1rem 0">
+        <div class="exercise-block">
+          <div style="font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;color:var(--txt3);margin-bottom:.5rem">${App._fmtDateFull(new Date(latest.date))}</div>
+          ${App._metricRows(latest)}
+        </div>
+      </div>
+
+      ${metrics.length > 1 ? `
+      <div class="section-header"><h2>Metric History</h2></div>
+      ${metrics.slice(0, 10).map(m => `
+        <div class="list-item" style="padding:.65rem 1rem">
+          <div>
+            <div style="font-size:.85rem;font-weight:600">${App._fmtDateFull(new Date(m.date))}</div>
+            <div style="font-size:.78rem;color:var(--txt2)">
+              ${m.weight ? m.weight + ' kg' : ''}${m.bodyFat ? ' · ' + m.bodyFat + '% BF' : ''}
+            </div>
+          </div>
+          <button style="color:var(--red);font-size:.8rem" data-action="delete-metric" data-id="${m.id}">Delete</button>
+        </div>`).join('')}` : ''}`;
+  },
+
+  // Planned weight is a straight line from the weight recorded at assessment to
+  // the target, over the weeks asked for. Actual is the logged weights placed on
+  // the same weekly buckets, so the two lines are directly comparable.
+  _goalTrajectory() {
+    const p = DB.getProfile() || {};
+    const startW  = parseFloat(p.weightKg);
+    const targetW = parseFloat(p.targetWeightKg);
+    const weeks   = parseInt(p.targetWeeks);
+    if (!startW || !targetW || !weeks || !p.assessedAt) return null;
+    if (Math.abs(targetW - startW) < 0.1) return null;   // maintaining — no line to draw
+
+    const start = new Date(p.assessedAt).getTime();
+    const week  = 7 * 86400000;
+    const metrics = DB.getBodyMetrics().filter(m => new Date(m.date + 'T12:00').getTime() >= start - week);
+
+    const labels = [], planned = [], actual = [];
+    for (let i = 0; i <= weeks; i++) {
+      const from = start + (i - 0.5) * week;
+      const to   = start + (i + 0.5) * week;
+      labels.push(i === 0 ? 'Start' : `W${i}`);
+      planned.push(Math.round((startW + (targetW - startW) * (i / weeks)) * 10) / 10);
+
+      // Most recent logged weight inside the week bucket, null if nothing logged.
+      const inBucket = metrics.filter(m => {
+        const t = new Date(m.date + 'T12:00').getTime();
+        return m.weight && t >= from && t < to;
+      });
+      actual.push(inBucket.length ? inBucket[0].weight : null);
+    }
+
+    const elapsed = Math.min(weeks, Math.max(0, Math.round((Date.now() - start) / week)));
+    const onPlan  = planned[elapsed];
+    const latest  = [...actual].reverse().find(v => v !== null);
+    let note = `Target ${targetW} kg in ${weeks} weeks.`;
+    if (latest != null) {
+      const diff = Math.round((latest - onPlan) * 10) / 10;
+      const ahead = (targetW < startW) ? diff < 0 : diff > 0;
+      note += Math.abs(diff) < 0.3
+        ? ' Right on the planned line.'
+        : ` You're ${Math.abs(diff)} kg ${ahead ? 'ahead of' : 'behind'} plan at week ${elapsed}.`;
+    }
+
+    return { labels, planned, actual, target: targetW, note };
   },
 
   _exerciseBlock(ex, ei) {

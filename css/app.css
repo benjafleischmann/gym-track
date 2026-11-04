@@ -568,6 +568,98 @@ a      { color: inherit; text-decoration: none; }
 /* max-width guards the gap between a canvas being inserted at its default
    300px attribute width and Chart.js resizing it on the next frame. */
 canvas { display: block; max-width: 100%; }
+.chart-foot { font-size: .72rem; color: var(--txt3); margin-top: .6rem; line-height: 1.4; }
+.chart-empty { font-size: .82rem; color: var(--txt3); padding: 1.5rem 0; text-align: center; line-height: 1.4; }
+
+/* ─── Progress ─────────────────────────────────────────────────────────────── */
+.range-bar {
+  display: flex;
+  gap: .4rem;
+  padding: .75rem 1rem .25rem;
+}
+.range-btn {
+  flex: 1;
+  min-width: 0;
+  padding: .45rem 0;
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--txt2);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.range-btn.active { color: #fff; background: var(--accent); border-color: var(--accent); }
+
+.progress-select { margin-bottom: .85rem; }
+
+.pr-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .5rem;
+  padding: 0 1rem;
+}
+.pr-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: .7rem .5rem;
+  text-align: center;
+  min-width: 0;
+}
+.pr-val { font-size: 1.05rem; font-weight: 700; color: var(--accent); line-height: 1.1; }
+.pr-lbl {
+  font-size: .62rem;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  color: var(--txt2);
+  margin-top: .25rem;
+}
+.pr-when { font-size: .62rem; color: var(--txt3); margin-top: .2rem; }
+
+.routine-prog-total {
+  font-size: .82rem;
+  color: var(--txt2);
+  line-height: 1.5;
+  padding-bottom: .6rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: .3rem;
+}
+.routine-prog-total strong { color: var(--green); font-size: 1rem; }
+.routine-prog-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: .45rem 0;
+}
+.routine-prog-name {
+  font-size: .85rem;
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.routine-prog-nums { text-align: right; flex-shrink: 0; }
+.routine-prog-from { display: block; font-size: .72rem; color: var(--txt3); }
+.routine-prog-delta { font-size: .8rem; font-weight: 600; color: var(--txt2); }
+.routine-prog-delta.up   { color: var(--green); }
+.routine-prog-delta.down { color: var(--red); }
+
+.pr-banner {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  background: var(--bg2);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: .7rem .85rem;
+  margin-bottom: .5rem;
+}
+.pr-banner-icon { font-size: 1.3rem; flex-shrink: 0; }
+.pr-banner-name { font-size: .9rem; font-weight: 600; }
+.pr-banner-sub  { font-size: .78rem; color: var(--txt2); margin-top: .1rem; }
 
 /* ─── Tabs ─────────────────────────────────────────────────────────────────── */
 .tab-bar {
