@@ -1,4 +1,6 @@
-const CACHE_NAME = 'gymtrack-v22';
+// Versioning: bump the minor on each change (22.1 → 22.2 …); at .9 roll the
+// major and reset (22.9 → 23.0).
+const CACHE_NAME = 'gymtrack-v22.1';
 const IMG_CACHE  = 'gymtrack-exercise-images';
 const IMG_HOST   = 'cdn.jsdelivr.net';
 const ASSETS = [

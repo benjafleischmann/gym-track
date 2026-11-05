@@ -103,6 +103,97 @@ const App = {
         });
       }).catch(() => {});
     }
+
+    // Watch sessions should just be there, the same way the watch itself needs
+    // no prompting. Garmin throttles this internally, so firing it on every
+    // return to the foreground is cheap.
+    this._autoSync();
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) this._autoSync();
+    });
+    this._bindPullToRefresh();
+  },
+
+  /**
+   * Background Garmin pull. Only announces itself when it actually found
+   * something, and re-renders so new sessions appear without a navigation.
+   */
+  async _autoSync({ force = false } = {}) {
+    const res = await Garmin.autoSync({ force });
+    if (!res || !res.saved) return res;
+    this._toast(`Synced ${res.saved} new ${res.saved === 1 ? 'session' : 'sessions'}`, 'success');
+    this._render();
+    return res;
+  },
+
+  /**
+   * Pull-to-refresh, on every screen.
+   *
+   * The document itself scrolls and `overscroll-behavior: none` already
+   * suppresses WebKit's rubber-band, so an overscroll drag at the top of the
+   * page is unclaimed and ours to use.
+   */
+  _bindPullToRefresh() {
+    const THRESHOLD = 70;   // pull distance that commits to a refresh
+    const MAX       = 110;  // where the indicator stops following the finger
+
+    const el = document.createElement('div');
+    el.id = 'ptr';
+    el.innerHTML = '<div class="ptr-ring"></div>';
+    document.body.appendChild(el);
+
+    let startY = null, startX = 0, dist = 0, pulling = false, busy = false;
+
+    const reset = () => {
+      el.classList.remove('ptr-visible', 'ptr-ready');
+      el.style.transform = '';
+      startY = null; dist = 0; pulling = false;
+    };
+
+    document.addEventListener('touchstart', e => {
+      if (busy || e.touches.length !== 1 || window.scrollY > 0) return;
+      // A downward drag inside a sheet, a modal or a sideways-scrolling strip
+      // belongs to that element, not to the page.
+      if (e.target.closest('.bottom-sheet, .modal, .day-pills, .tab-bar')) return;
+      startY = e.touches[0].clientY;
+      startX = e.touches[0].clientX;
+    }, { passive: true });
+
+    document.addEventListener('touchmove', e => {
+      if (startY === null || busy) return;
+      const dy = e.touches[0].clientY - startY;
+      const dx = e.touches[0].clientX - startX;
+      // Let a mostly-sideways gesture through untouched, or swiping across a
+      // carousel near the top of the page would trigger a refresh.
+      if (!pulling && Math.abs(dx) > Math.abs(dy)) { startY = null; return; }
+      if (dy <= 0 || window.scrollY > 0) { if (pulling) reset(); return; }
+
+      pulling = true;
+      dist = Math.min(MAX, dy * 0.5);   // resistance, so it eases rather than tracking 1:1
+      el.classList.add('ptr-visible');
+      el.classList.toggle('ptr-ready', dist >= THRESHOLD);
+      el.style.transform = `translate(-50%, ${dist}px)`;
+      e.preventDefault();               // keep the pull from becoming a scroll
+    }, { passive: false });
+
+    document.addEventListener('touchend', () => {
+      if (startY === null) return;
+      if (!pulling || dist < THRESHOLD) return reset();
+
+      busy = true;
+      el.classList.add('ptr-busy');
+      el.style.transform = `translate(-50%, ${THRESHOLD}px)`;
+      // Hold the spinner briefly even on an instant result, so a refresh that
+      // finds nothing still reads as having happened.
+      Promise.all([
+        this._autoSync({ force: true }).catch(() => null),
+        new Promise(r => setTimeout(r, 600)),
+      ]).finally(() => {
+        busy = false;
+        el.classList.remove('ptr-busy');
+        reset();
+      });
+    }, { passive: true });
   },
 
   _bindNav() {
@@ -195,7 +286,7 @@ const App = {
     const el = document.getElementById('build-id');
     if (!el) return;
     try {
-      const name = (await caches.keys()).find(k => /^gymtrack-v\d+$/.test(k));
+      const name = (await caches.keys()).find(k => /^gymtrack-v\d+(\.\d+)?$/.test(k));
       el.textContent = name ? name.replace('gymtrack-', '') : 'not cached';
     } catch {
       el.textContent = 'unknown';

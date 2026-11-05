@@ -195,6 +195,54 @@ const Garmin = {
     return { saved, failed };
   },
 
+  // ── Background sync ────────────────────────────────────────────────────────
+
+  // Garmin rate-limits, and the app checks on every launch and every return to
+  // the foreground, so a throttle keeps a day of app-switching down to a
+  // handful of calls.
+  AUTO_SYNC_MS: 15 * 60 * 1000,
+
+  /**
+   * Pull anything new without asking. Runs on launch, on return to the app and
+   * on pull-to-refresh.
+   *
+   * Silent in both directions: it never interrupts with a spinner, and a
+   * failure is swallowed rather than surfaced, because a background check that
+   * couldn't reach the network is not something the user needs to act on. The
+   * manual sync screen is where errors are worth reporting.
+   *
+   * Returns { saved } when it ran, or null when it was throttled, already
+   * running, unconfigured, or failed.
+   */
+  async autoSync({ force = false } = {}) {
+    if (!this.isConfigured() || this._syncing) return null;
+
+    const last = this.config().lastSync;
+    const lastMs = last ? new Date(last).getTime() : 0;
+    if (!force && lastMs && Date.now() - lastMs < this.AUTO_SYNC_MS) return null;
+
+    // Only ever look back as far as the gap since the last successful check.
+    // Without this, a background sync on a device that has never synced would
+    // quietly download a FIT file for every strength session in a month.
+    const gapDays = lastMs ? Math.ceil((Date.now() - lastMs) / 86400000) + 2 : 14;
+    const sinceDays = Math.min(30, Math.max(7, gapDays));
+
+    this._syncing = true;
+    try {
+      const { importable } = await this.preview({ sinceDays, limit: 50 });
+      if (!importable.length) { this._markSynced(); return { saved: 0 }; }
+      const { saved } = await this.importWorkouts(importable);
+      // importWorkouts only marks a sync when something saved; a clean run
+      // that found nothing still counts, or the throttle never engages.
+      this._markSynced();
+      return { saved: saved.length };
+    } catch {
+      return null;
+    } finally {
+      this._syncing = false;
+    }
+  },
+
   // ── Mapping ────────────────────────────────────────────────────────────────
 
   /**

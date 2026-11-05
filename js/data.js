@@ -43,7 +43,16 @@ const DB = {
   },
 
   // ── Workouts ───────────────────────────────────────────────────────────────
-  getWorkouts()        { return this._get(this.K.WORKOUTS) || []; },
+  // Newest session first, by the date the session happened rather than the
+  // order it was stored. Importing history writes old sessions last, so
+  // insertion order says nothing about when anything was trained — and
+  // getRecentWorkouts/getLastWorkoutForExercise both read "most recent" as
+  // "first in this list", which feeds the progression suggestions.
+  getWorkouts() {
+    return (this._get(this.K.WORKOUTS) || [])
+      .sort((a, b) => this._when(b) - this._when(a));
+  },
+  _when(w) { return new Date(w.completedAt || w.startedAt).getTime() || 0; },
   getWorkout(id)       { return this.getWorkouts().find(w => w.id === id) || null; },
   getRecentWorkouts(n) { return this.getWorkouts().slice(0, n || 10); },
   saveWorkout(w) {

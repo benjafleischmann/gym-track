@@ -1380,6 +1380,43 @@ canvas { display: block; max-width: 100%; }
 }
 .assess-when { font-size: .68rem; color: var(--txt3); margin-top: .7rem; }
 
+/* ─── Pull to refresh ──────────────────────────────────────────────────────── */
+/* Parked above the safe area so it only ever appears as a consequence of the
+   drag, and fixed so it never takes part in layout. */
+#ptr {
+  position: fixed;
+  top: calc(var(--safe-top) - 44px);
+  left: 50%;
+  transform: translate(-50%, 0);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 200;
+}
+#ptr.ptr-visible { opacity: 1; }
+#ptr.ptr-busy    { transition: transform .2s ease; }
+.ptr-ring {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--txt3);
+  border-top-color: transparent;
+  border-radius: 50%;
+  transition: border-color .15s ease;
+}
+/* Past the commit threshold the ring takes the accent colour, so the gesture
+   says it will fire before you let go. */
+#ptr.ptr-ready .ptr-ring,
+#ptr.ptr-busy  .ptr-ring { border-color: var(--accent); border-top-color: transparent; }
+#ptr.ptr-busy  .ptr-ring { animation: ptr-spin .6s linear infinite; }
+@keyframes ptr-spin { to { transform: rotate(360deg); } }
+
 /* ─── Misc ─────────────────────────────────────────────────────────────────── */
 .text-accent  { color: var(--accent); }
 .text-muted   { color: var(--txt2); }
