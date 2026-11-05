@@ -120,8 +120,13 @@ const App = {
    */
   async _autoSync({ force = false } = {}) {
     const res = await Garmin.autoSync({ force });
-    if (!res || !res.saved) return res;
-    this._toast(`Synced ${res.saved} new ${res.saved === 1 ? 'session' : 'sessions'}`, 'success');
+    if (!res || !(res.saved || res.updated)) return res;
+
+    const bits = [];
+    if (res.saved)   bits.push(`${res.saved} new`);
+    if (res.updated) bits.push(`${res.updated} updated`);
+    const n = res.saved + res.updated;
+    this._toast(`Synced ${bits.join(' · ')} ${n === 1 ? 'session' : 'sessions'}`, 'success');
     this._render();
     return res;
   },
@@ -1138,6 +1143,17 @@ const App = {
           </div>` : ''}
 
         ${body}
+
+        <div style="padding:1rem">
+          <button class="btn btn-secondary" data-action="garmin-recheck"
+                  style="width:100%;padding:.85rem;border-radius:var(--radius)"
+                  ${st.loading ? 'disabled' : ''}>Re-check imported sessions</button>
+          <div style="margin-top:.5rem;color:var(--txt3);font-size:.72rem;line-height:1.45">
+            Reads every session in this range again, so corrections you make in
+            Garmin Connect replace what GymTrack already stored. Downloads a file
+            per strength session, so it is slower than a normal check.
+          </div>
+        </div>
 
         <div style="padding:1.5rem 1rem;text-align:center;color:var(--txt3);font-size:.72rem">
           <button class="btn btn-sm btn-ghost" data-action="garmin-disconnect"
@@ -2395,6 +2411,10 @@ const App = {
         this._garminLoad();
         break;
 
+      case 'garmin-recheck':
+        this._garminLoad({ recheck: true });
+        break;
+
       // Patched in place rather than re-rendered: a full render would rebuild
       // the whole list and throw away the scroll position on every tap.
       case 'garmin-toggle': {
@@ -2428,18 +2448,27 @@ const App = {
         el.disabled = true;
         el.textContent = 'Importing…';
 
-        Garmin.importWorkouts(rows).then(({ saved, failed }) => {
-          Firebase.onReady(() => saved.forEach(w => Firebase.syncWorkout(w).catch(() => {})));
-          if (saved.length) {
+        Garmin.importWorkouts(rows).then(({ saved, updated, failed }) => {
+          const written = saved.concat(updated);
+          Firebase.onReady(() => written.forEach(w => Firebase.syncWorkout(w).catch(() => {})));
+          if (written.length) {
+            const bits = [];
+            if (saved.length)   bits.push(`${saved.length} imported`);
+            if (updated.length) bits.push(`${updated.length} updated`);
             this._toast(
-              `Imported ${saved.length} session${saved.length === 1 ? '' : 's'}` +
+              bits.join(' · ') +
               (failed.length ? ` · ${failed.length} failed` : ''),
               failed.length ? 'error' : 'success');
             this.navigate('progress');
-          } else {
-            this._toast(failed[0]?.error || 'Nothing could be imported', 'error');
+          } else if (failed.length) {
+            this._toast(failed[0].error, 'error');
             el.disabled = false;
             el.textContent = `Import ${rows.length} session${rows.length === 1 ? '' : 's'}`;
+          } else {
+            // Every row was a re-check that turned out to be unchanged, which
+            // is the normal outcome of re-checking and not a failure.
+            this._toast('Already up to date', 'success');
+            this.navigate('progress');
           }
         });
         break;
@@ -3003,12 +3032,17 @@ const App = {
     return map[this.state.screen] || 'dashboard';
   },
 
-  async _garminLoad() {
+  async _garminLoad({ recheck = false } = {}) {
     const st = this.state.garmin;
-    st.loading = true; st.error = null; st.preview = null;
+    st.loading = true; st.error = null; st.preview = null; st.recheck = recheck;
     this._render();
     try {
-      st.preview  = await Garmin.preview({ sinceDays: st.range });
+      // Re-checking re-opens everything in the selected range; a plain lookup
+      // only reports sessions GymTrack has never seen.
+      st.preview  = await Garmin.preview({
+        sinceDays:   st.range,
+        refreshDays: recheck ? st.range : 0,
+      });
       // Everything new is selected by default — the common case is importing
       // all of it, and unticking is cheaper than ticking.
       st.selected = new Set(st.preview.importable.map(r => r.garminId));
@@ -3068,7 +3102,12 @@ const App = {
 
     const n = st.selected.size;
     return `
-      <div class="section-header"><h2>New sessions</h2></div>
+      <div class="section-header"><h2>${st.recheck ? 'Sessions in range' : 'New sessions'}</h2></div>
+      ${st.recheck ? `
+        <div style="padding:0 1rem .5rem;color:var(--txt3);font-size:.72rem;line-height:1.45">
+          Sessions already in GymTrack are included. Importing one replaces the
+          stored copy with Garmin's current version.
+        </div>` : ''}
       ${rows}
       <div style="padding:1rem">
         <button class="btn btn-primary" data-action="garmin-import" ${n ? '' : 'disabled'}>

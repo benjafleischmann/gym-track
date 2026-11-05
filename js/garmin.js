@@ -114,9 +114,17 @@ const Garmin = {
   /**
    * Fetch activities and classify them without writing anything, so the user
    * can see what will be imported before committing to it.
+   *
+   * `refreshDays` re-opens sessions that are already in GymTrack, so edits made
+   * in Garmin Connect after the first import can still land. Those come back as
+   * importable rows carrying `replaceId`. It is off by default because the only
+   * way to tell whether a strength session changed is to download and decode
+   * its FIT again, which is far too expensive to do for a whole history on
+   * every check. Pass `null` to re-open the entire range.
+   *
    * Returns { importable, duplicates, unsupported }.
    */
-  async preview({ sinceDays = 30, limit = 50 } = {}) {
+  async preview({ sinceDays = 30, limit = 50, refreshDays = 0 } = {}) {
     const params = { limit };
     if (sinceDays) {
       params.startDate = new Date(Date.now() - sinceDays * 86400000)
@@ -124,9 +132,14 @@ const Garmin = {
     }
 
     const { activities = [] } = await this._call('/activities', params);
-    const seen = new Set(
-      DB.getWorkouts().map(w => w.garminId).filter(Boolean).map(String)
-    );
+    const seen = new Map();
+    DB.getWorkouts().forEach(w => {
+      if (w.garminId) seen.set(String(w.garminId), w);
+    });
+
+    const refreshBefore = refreshDays === null
+      ? -Infinity
+      : Date.now() - refreshDays * 86400000;
 
     const out = { importable: [], duplicates: [], unsupported: [] };
 
@@ -140,7 +153,12 @@ const Garmin = {
         distanceM:   a.distanceM,
       };
 
-      if (seen.has(row.garminId)) { out.duplicates.push(row); return; }
+      const existing = seen.get(row.garminId);
+      if (existing) {
+        const when = new Date(existing.completedAt || existing.startedAt).getTime() || 0;
+        if (!(when >= refreshBefore)) { out.duplicates.push(row); return; }
+        row.replaceId = existing.id;
+      }
 
       // Strength needs its FIT file to say anything useful, and that is a
       // ~100 KB download each — too much to do for a whole list the user may
@@ -173,10 +191,16 @@ const Garmin = {
    * Save the workouts chosen from a preview. Strength rows download and decode
    * their FIT here rather than during preview. One failure must not lose the
    * rest of the batch, so failures are collected and reported.
-   * Returns { saved, failed }.
+   *
+   * A row with `replaceId` is an existing session being re-read from Garmin.
+   * It reuses the stored workout's id so DB.saveWorkout overwrites in place,
+   * keeping anything that points at it intact. Garmin is the source of truth
+   * here, so a corrected exercise name comes back as Garmin now has it.
+   *
+   * Returns { saved, updated, failed }.
    */
   async importWorkouts(rows) {
-    const saved = [], failed = [];
+    const saved = [], updated = [], failed = [];
 
     for (const r of rows) {
       try {
@@ -185,14 +209,38 @@ const Garmin = {
           workout = this._toStrengthWorkout(r.activity, await this._fitSets(r.garminId));
         }
         if (!workout) { failed.push({ row: r, error: 'No usable data in the file.' }); continue; }
-        saved.push(DB.saveWorkout(workout));
+
+        if (!r.replaceId) { saved.push(DB.saveWorkout(workout)); continue; }
+
+        // Re-reading a session that has not been touched in Garmin rebuilds an
+        // identical workout. Writing it anyway would report an update that did
+        // not happen, so compare first and leave the stored copy alone.
+        const current = DB.getWorkout(r.replaceId);
+        workout.id = r.replaceId;
+        if (current && this._sameWorkout(current, workout)) continue;
+        updated.push(DB.saveWorkout(workout));
       } catch (err) {
         failed.push({ row: r, error: String(err && err.message || err) });
       }
     }
 
-    if (saved.length) this._markSynced();
-    return { saved, failed };
+    if (saved.length || updated.length) this._markSynced();
+    return { saved, updated, failed };
+  },
+
+  // Only the parts that come from Garmin are compared. Everything else on a
+  // workout is either derived or local bookkeeping.
+  _sameWorkout(a, b) {
+    const shape = w => JSON.stringify({
+      name: w.name,
+      startedAt: w.startedAt,
+      completedAt: w.completedAt,
+      exercises: (w.exercises || []).map(ex => ({
+        id: ex.exerciseId,
+        sets: ex.sets,
+      })),
+    });
+    return shape(a) === shape(b);
   },
 
   // ── Background sync ────────────────────────────────────────────────────────
@@ -201,6 +249,11 @@ const Garmin = {
   // the foreground, so a throttle keeps a day of app-switching down to a
   // handful of calls.
   AUTO_SYNC_MS: 15 * 60 * 1000,
+
+  // How far back a pull-to-refresh re-reads already-imported sessions. Long
+  // enough to cover tidying up last week's training, short enough that it is
+  // a handful of FIT downloads rather than a history-wide re-import.
+  REFRESH_DAYS: 7,
 
   /**
    * Pull anything new without asking. Runs on launch, on return to the app and
@@ -211,8 +264,8 @@ const Garmin = {
    * couldn't reach the network is not something the user needs to act on. The
    * manual sync screen is where errors are worth reporting.
    *
-   * Returns { saved } when it ran, or null when it was throttled, already
-   * running, unconfigured, or failed.
+   * Returns { saved, updated } when it ran, or null when it was throttled,
+   * already running, unconfigured, or failed.
    */
   async autoSync({ force = false } = {}) {
     if (!this.isConfigured() || this._syncing) return null;
@@ -227,15 +280,20 @@ const Garmin = {
     const gapDays = lastMs ? Math.ceil((Date.now() - lastMs) / 86400000) + 2 : 14;
     const sinceDays = Math.min(30, Math.max(7, gapDays));
 
+    // Pulling down is a deliberate "go and look again", so it also re-reads
+    // recent sessions to catch edits made in Garmin Connect. The unattended
+    // checks stay cheap and only look for sessions that are new.
+    const refreshDays = force ? this.REFRESH_DAYS : 0;
+
     this._syncing = true;
     try {
-      const { importable } = await this.preview({ sinceDays, limit: 50 });
-      if (!importable.length) { this._markSynced(); return { saved: 0 }; }
-      const { saved } = await this.importWorkouts(importable);
+      const { importable } = await this.preview({ sinceDays, limit: 50, refreshDays });
+      if (!importable.length) { this._markSynced(); return { saved: 0, updated: 0 }; }
+      const { saved, updated } = await this.importWorkouts(importable);
       // importWorkouts only marks a sync when something saved; a clean run
       // that found nothing still counts, or the throttle never engages.
       this._markSynced();
-      return { saved: saved.length };
+      return { saved: saved.length, updated: updated.length };
     } catch {
       return null;
     } finally {
