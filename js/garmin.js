@@ -264,8 +264,9 @@ const Garmin = {
    * couldn't reach the network is not something the user needs to act on. The
    * manual sync screen is where errors are worth reporting.
    *
-   * Returns { saved, updated } when it ran, or null when it was throttled,
-   * already running, unconfigured, or failed.
+   * Returns { saved, updated } as arrays of workouts when it ran, so the caller
+   * can push them to the cloud, or null when it was throttled, already running,
+   * unconfigured, or failed.
    */
   async autoSync({ force = false } = {}) {
     if (!this.isConfigured() || this._syncing) return null;
@@ -288,12 +289,12 @@ const Garmin = {
     this._syncing = true;
     try {
       const { importable } = await this.preview({ sinceDays, limit: 50, refreshDays });
-      if (!importable.length) { this._markSynced(); return { saved: 0, updated: 0 }; }
+      if (!importable.length) { this._markSynced(); return { saved: [], updated: [] }; }
       const { saved, updated } = await this.importWorkouts(importable);
       // importWorkouts only marks a sync when something saved; a clean run
       // that found nothing still counts, or the throttle never engages.
       this._markSynced();
-      return { saved: saved.length, updated: updated.length };
+      return { saved, updated };
     } catch {
       return null;
     } finally {

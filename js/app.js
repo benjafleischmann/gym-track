@@ -120,13 +120,20 @@ const App = {
    */
   async _autoSync({ force = false } = {}) {
     const res = await Garmin.autoSync({ force });
-    if (!res || !(res.saved || res.updated)) return res;
+    if (!res) return res;
+
+    // A session pulled in the background has to reach the cloud the same way a
+    // hand-picked import does, or it only ever exists on the device that
+    // happened to be open when the watch finished uploading.
+    const written = res.saved.concat(res.updated);
+    if (!written.length) return res;
+    Firebase.onReady(() => written.forEach(w => Firebase.syncWorkout(w).catch(() => {})));
 
     const bits = [];
-    if (res.saved)   bits.push(`${res.saved} new`);
-    if (res.updated) bits.push(`${res.updated} updated`);
-    const n = res.saved + res.updated;
-    this._toast(`Synced ${bits.join(' · ')} ${n === 1 ? 'session' : 'sessions'}`, 'success');
+    if (res.saved.length)   bits.push(`${res.saved.length} new`);
+    if (res.updated.length) bits.push(`${res.updated.length} updated`);
+    this._toast(
+      `Synced ${bits.join(' · ')} ${written.length === 1 ? 'session' : 'sessions'}`, 'success');
     this._render();
     return res;
   },
