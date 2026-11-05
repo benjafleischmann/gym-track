@@ -15,6 +15,9 @@ const App = {
     progressRange: 90,    // days shown on the Progress charts; null = all time
     progressExerciseId: null,
     progressRoutineId: null,
+    // Garmin lookup results, held in memory only — nothing is written to the
+    // workout log until the user confirms the import.
+    garmin: { loading: false, error: null, preview: null, selected: new Set(), range: 30 },
   },
 
   // ── Boot ───────────────────────────────────────────────────────────────────
@@ -159,6 +162,7 @@ const App = {
       case 'profile':         app.innerHTML = this.screens.profile();         break;
       case 'log-metric':      app.innerHTML = this.screens.logMetric();       break;
       case 'log-past-workout': app.innerHTML = this.screens.logPastWorkout(); break;
+      case 'garmin-sync':     app.innerHTML = this.screens.garminSync();     break;
       default:                app.innerHTML = this.screens.dashboard();
     }
     this._afterRender();
@@ -169,6 +173,13 @@ const App = {
     if (s === 'dashboard')       { this._initCharts(['weekly-volume','body-weight-mini']); }
     if (s === 'active-workout')  { this._startWorkoutTimer(); }
     if (s === 'profile')         { this._loadFriendsSection(); this._showBuildId(); }
+    // Look up Garmin on arrival so the screen is never an empty shell, but only
+    // when there is nothing on screen yet — re-rendering after a toggle must not
+    // refetch and wipe the selection.
+    if (s === 'garmin-sync' && Garmin.isConfigured() &&
+        !this.state.garmin.preview && !this.state.garmin.loading && !this.state.garmin.error) {
+      this._garminLoad();
+    }
     if (s === 'progress') {
       const tab = this.state.activeTab['progress'] || 0;
       if (tab === 0) this._renderCalendar();
@@ -687,11 +698,26 @@ const App = {
                  ? ` · ${App._pace({ distance: totalKm, duration: totalMin })}` : ''}
              </div>`
           : '';
+        // Garmin guessed this exercise from wrist motion, so make the name a
+        // tappable correction rather than presenting it as fact.
+        const ei = w.exercises.indexOf(ex);
+        const nameCell = ex.guessed
+          ? `<button class="btn-ghost" data-action="fix-garmin-exercise"
+                     data-id="${w.id}" data-ei="${ei}"
+                     style="display:flex;align-items:center;gap:.35rem;padding:0;border:0;background:none;text-align:left">
+               <span class="exercise-block-name">${ex.exerciseName}</span>
+               <span style="font-size:.62rem;text-transform:uppercase;letter-spacing:.4px;
+                            color:var(--orange,#c87f2a);border:1px solid currentColor;
+                            border-radius:3px;padding:0 .25rem">guess</span>
+               ${App._icon('chevron-right', 13)}
+             </button>`
+          : `<div class="exercise-block-name">${ex.exerciseName}</div>`;
+
         return `
           <div style="margin:.5rem 1rem 0">
             <div class="exercise-block">
               <div class="exercise-block-header">
-                <div><div class="exercise-block-name">${ex.exerciseName}</div></div>
+                <div>${nameCell}</div>
               </div>
               ${summary}
               <table style="width:100%;border-collapse:collapse">
@@ -718,6 +744,17 @@ const App = {
         <div style="padding:.5rem 1rem">
           <div style="font-size:.8rem;color:var(--txt2)">${App._fmtDateFull(new Date(w.startedAt))}</div>
         </div>
+
+        ${w.needsReview ? `
+        <div style="margin:.25rem 1rem;padding:.6rem .75rem;border-radius:var(--radius);
+                    background:var(--bg2);border:1px solid var(--orange,#c87f2a);
+                    font-size:.78rem;line-height:1.45;color:var(--txt2)">
+          <strong style="color:var(--txt)">Imported from Garmin</strong> — reps and weights
+          are exact, but your watch guessed the exercise names. Tap any name marked
+          <em>guess</em> to correct it.
+          <button class="btn btn-sm btn-secondary" style="margin-top:.5rem;width:100%"
+                  data-action="confirm-garmin-review" data-id="${w.id}">Names look right</button>
+        </div>` : ''}
 
         <div class="stat-grid">
           <div class="stat-card"><div class="val">${duration}</div><div class="lbl">Duration</div></div>
@@ -747,6 +784,7 @@ const App = {
       const fbName  = Firebase.ready ? Firebase.userName : null;
       const fbPhoto = Firebase.ready ? Firebase.userPhoto : null;
       const displayName = fbName || name;
+      const cfg     = Garmin.config();
 
       return `
       <div class="screen">
@@ -828,6 +866,29 @@ const App = {
               <div>
                 <div class="list-item-name">${latest ? `${latest.weight ? latest.weight + ' kg' : '—'}${latest.bodyFat ? ` · ${latest.bodyFat}% BF` : ''}` : 'No measurements yet'}</div>
                 <div class="list-item-sub">${latest ? `Last logged ${App._fmtDateFull(new Date(latest.date))}` : 'Log your weight to start tracking'}</div>
+              </div>
+            </div>
+            ${App._icon('chevron-right', 18)}
+          </div>
+        </div>
+
+        <!-- ── Garmin ── -->
+        <div class="section-header" style="margin-top:.75rem">
+          <h2>Garmin</h2>
+        </div>
+
+        <div style="padding:0 1rem">
+          <div class="list-item" style="border-radius:var(--radius);border:1px solid var(--border)"
+               data-action="open-garmin-sync">
+            <div class="list-item-left">
+              <div class="list-item-icon">⌚</div>
+              <div style="min-width:0">
+                <div class="list-item-name">${Garmin.isConfigured() ? 'Import from Garmin' : 'Connect Garmin'}</div>
+                <div class="list-item-sub">${
+                  Garmin.isConfigured()
+                    ? (cfg.lastSync ? `Last imported ${App._fmtDateFull(new Date(cfg.lastSync))}` : 'Connected — nothing imported yet')
+                    : 'Pull your runs and rides in automatically'
+                }</div>
               </div>
             </div>
             ${App._icon('chevron-right', 18)}
@@ -917,6 +978,79 @@ const App = {
 
         <div style="padding:1rem">
           <button class="btn btn-primary" data-action="save-metric">Save Metrics</button>
+        </div>
+      </div>`;
+    },
+
+    // ── Garmin Sync ───────────────────────────────────────────────────────────
+    garminSync() {
+      const cfg = Garmin.config();
+      const st  = App.state.garmin;
+
+      if (!Garmin.isConfigured()) {
+        return `
+        <div class="screen">
+          <div class="screen-header">
+            <button class="back-btn" data-action="back">${App._icon('chevron-left')}</button>
+            <span class="screen-title" style="flex:1;text-align:center">Garmin Sync</span>
+            <span style="width:2rem"></span>
+          </div>
+          <div style="padding:0 1rem 1rem;color:var(--txt2);font-size:.82rem;line-height:1.5">
+            Connect your Garmin account to pull completed cardio sessions straight
+            into GymTrack. Your Garmin credentials stay on your own relay — GymTrack
+            only ever sees the sync token below.
+          </div>
+          <div class="form-group">
+            <label class="form-label">Relay URL</label>
+            <input type="url" class="form-input" id="garmin-url" inputmode="url"
+                   placeholder="https://….workers.dev" value="${cfg.url}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Sync token</label>
+            <input type="password" class="form-input" id="garmin-token"
+                   placeholder="Paste your sync token" value="${cfg.token}">
+          </div>
+          <div style="padding:1rem">
+            <button class="btn btn-primary" data-action="save-garmin-config">Connect</button>
+          </div>
+        </div>`;
+      }
+
+      const body = st.loading
+        ? `<div style="padding:2rem 1rem;text-align:center;color:var(--txt3);font-size:.85rem">Checking Garmin…</div>`
+        : st.error
+          ? `<div style="padding:1.5rem 1rem;text-align:center;color:var(--red);font-size:.85rem">${st.error}</div>`
+          : st.preview
+            ? App._garminResults(st)
+            : '';
+
+      return `
+      <div class="screen">
+        <div class="screen-header">
+          <button class="back-btn" data-action="back">${App._icon('chevron-left')}</button>
+          <span class="screen-title" style="flex:1;text-align:center">Garmin Sync</span>
+          <button class="btn btn-sm btn-ghost" data-action="garmin-refresh"
+                  ${st.loading ? 'disabled' : ''}>Refresh</button>
+        </div>
+
+        <div style="padding:0 1rem .75rem;display:flex;align-items:center;gap:.5rem">
+          <select class="form-select" id="garmin-range" data-action="garmin-range" style="flex:1;min-width:0">
+            <option value="7"  ${st.range === 7  ? 'selected' : ''}>Last 7 days</option>
+            <option value="30" ${st.range === 30 ? 'selected' : ''}>Last 30 days</option>
+            <option value="90" ${st.range === 90 ? 'selected' : ''}>Last 90 days</option>
+          </select>
+        </div>
+
+        ${cfg.lastSync ? `
+          <div style="padding:0 1rem .5rem;color:var(--txt3);font-size:.72rem">
+            Last imported ${App._fmtDateFull(new Date(cfg.lastSync))}
+          </div>` : ''}
+
+        ${body}
+
+        <div style="padding:1.5rem 1rem;text-align:center;color:var(--txt3);font-size:.72rem">
+          <button class="btn btn-sm btn-ghost" data-action="garmin-disconnect"
+                  style="color:var(--txt3)">Disconnect Garmin</button>
         </div>
       </div>`;
     },
@@ -2149,6 +2283,131 @@ const App = {
         this._showProfileSheet();
         break;
 
+      // Garmin
+      case 'open-garmin-sync':
+        this.state.garmin = { loading: false, error: null, preview: null, selected: new Set(), range: 30 };
+        this.navigate('garmin-sync');
+        break;
+
+      case 'save-garmin-config': {
+        const url   = document.getElementById('garmin-url')?.value.trim()   || '';
+        const token = document.getElementById('garmin-token')?.value.trim() || '';
+        if (!/^https:\/\/\S+$/.test(url)) { this._toast('Enter the relay URL (https://…)', 'error'); return; }
+        if (!token)                       { this._toast('Enter your sync token', 'error'); return; }
+        Garmin.saveConfig({ url, token });
+        this.state.garmin = { loading: false, error: null, preview: null, selected: new Set(), range: 30 };
+        this._render();
+        break;
+      }
+
+      case 'garmin-refresh':
+        this._garminLoad();
+        break;
+
+      // Patched in place rather than re-rendered: a full render would rebuild
+      // the whole list and throw away the scroll position on every tap.
+      case 'garmin-toggle': {
+        const gid = el.dataset.gid;
+        const sel = this.state.garmin.selected;
+        const on  = !sel.has(gid);
+        if (on) sel.add(gid); else sel.delete(gid);
+
+        const box = el.querySelector('.garmin-check');
+        if (box) {
+          box.classList.toggle('on', on);
+          box.innerHTML = on ? this._icon('check', 14) : '';
+        }
+
+        const btn = document.querySelector('[data-action="garmin-import"]');
+        if (btn) {
+          const n = sel.size;
+          btn.disabled    = !n;
+          btn.textContent = n ? `Import ${n} session${n === 1 ? '' : 's'}` : 'Select a session';
+        }
+        break;
+      }
+
+      case 'garmin-import': {
+        const st   = this.state.garmin;
+        const rows = st.preview.importable.filter(r => st.selected.has(r.garminId));
+        if (!rows.length) return;
+
+        // Strength rows download a FIT each, so this is slow enough to need
+        // a busy state — and must not be fired twice.
+        el.disabled = true;
+        el.textContent = 'Importing…';
+
+        Garmin.importWorkouts(rows).then(({ saved, failed }) => {
+          Firebase.onReady(() => saved.forEach(w => Firebase.syncWorkout(w).catch(() => {})));
+          if (saved.length) {
+            this._toast(
+              `Imported ${saved.length} session${saved.length === 1 ? '' : 's'}` +
+              (failed.length ? ` · ${failed.length} failed` : ''),
+              failed.length ? 'error' : 'success');
+            this.navigate('progress');
+          } else {
+            this._toast(failed[0]?.error || 'Nothing could be imported', 'error');
+            el.disabled = false;
+            el.textContent = `Import ${rows.length} session${rows.length === 1 ? '' : 's'}`;
+          }
+        });
+        break;
+      }
+
+      // Reassign one Garmin-guessed exercise, keeping its logged sets. Clearing
+      // `guessed` here means a session the user has fully corrected stops
+      // nagging on its own, without needing the banner button.
+      case 'fix-garmin-exercise': {
+        const w  = DB.getWorkout(el.dataset.id);
+        const ex = w && w.exercises[parseInt(el.dataset.ei)];
+        if (!ex) return;
+        this._showExercisePicker(newId => {
+          const info = getExercise(newId);
+          if (!info) return;
+          const wasCardio = App._isCardio(ex.measureType);
+          ex.exerciseId   = newId;
+          ex.exerciseName = info.name;
+          ex.measureType  = info.measureType || null;
+          // A machine block and a weights block hold different fields, so
+          // crossing between them would leave the sets unreadable. Keep the
+          // count and start the new fields empty for the user to fill in.
+          if (App._isCardio(ex.measureType) !== wasCardio) {
+            ex.sets = ex.sets.map((s, i) => {
+              const next = App._blankSet(i + 1, ex.measureType);
+              next.completed = s.completed;
+              return next;
+            });
+            ex.targetReps = App._isCardio(ex.measureType) ? '1 session' : '—';
+          }
+          delete ex.guessed;
+          delete ex.garminGuesses;
+          if (!w.exercises.some(e => e.guessed)) delete w.needsReview;
+          DB.saveWorkout(w);
+          Firebase.onReady(() => Firebase.syncWorkout(w).catch(() => {}));
+          this._render();
+        });
+        break;
+      }
+
+      case 'confirm-garmin-review': {
+        const w = DB.getWorkout(el.dataset.id);
+        if (!w) return;
+        delete w.needsReview;
+        w.exercises.forEach(ex => { delete ex.guessed; delete ex.garminGuesses; });
+        DB.saveWorkout(w);
+        Firebase.onReady(() => Firebase.syncWorkout(w).catch(() => {}));
+        this._render();
+        break;
+      }
+
+      case 'garmin-disconnect':
+        this._confirm('Disconnect Garmin? Imported workouts stay in GymTrack.', () => {
+          Garmin.saveConfig({ url: '', token: '' });
+          this.state.garmin = { loading: false, error: null, preview: null, selected: new Set(), range: 30 };
+          this.navigate('profile');
+        }, 'Disconnect', true);
+        break;
+
       // Friends
       case 'copy-invite-link': {
         const link = Firebase.ready ? Firebase.getInviteLink() : '';
@@ -2245,6 +2504,10 @@ const App = {
       this.state.progressRoutineId = el.value;
       this._destroyCharts();
       this._render();
+    }
+    if (el.dataset.action === 'garmin-range') {
+      this.state.garmin.range = parseInt(el.value);
+      this._garminLoad();
     }
   },
 
@@ -2644,8 +2907,102 @@ const App = {
       'log-metric':      'profile',
       'log-past-workout':'progress',
       'active-workout':  'workout',
+      'garmin-sync':     'profile',
     };
     return map[this.state.screen] || 'dashboard';
+  },
+
+  async _garminLoad() {
+    const st = this.state.garmin;
+    st.loading = true; st.error = null; st.preview = null;
+    this._render();
+    try {
+      st.preview  = await Garmin.preview({ sinceDays: st.range });
+      // Everything new is selected by default — the common case is importing
+      // all of it, and unticking is cheaper than ticking.
+      st.selected = new Set(st.preview.importable.map(r => r.garminId));
+    } catch (err) {
+      st.error = err.message || 'Could not reach Garmin.';
+    } finally {
+      st.loading = false;
+      this._render();
+    }
+  },
+
+  // Results of a Garmin lookup. Nothing is written until Import is pressed, so
+  // the list doubles as a confirmation step.
+  _garminResults(st) {
+    const { importable, duplicates, unsupported } = st.preview;
+
+    if (!importable.length) {
+      return `
+      <div style="padding:2rem 1rem;text-align:center">
+        <div style="font-size:.9rem;font-weight:600;margin-bottom:.35rem">Nothing new to import</div>
+        <div style="font-size:.8rem;color:var(--txt2)">
+          ${duplicates.length ? `${duplicates.length} session${duplicates.length === 1 ? '' : 's'} already in GymTrack.` : 'No cardio sessions found in this range.'}
+        </div>
+        ${App._garminSkipped(unsupported)}
+      </div>`;
+    }
+
+    const rows = importable.map(r => {
+      const on = st.selected.has(r.garminId);
+
+      // Cardio rows arrive with their workout already built; strength rows only
+      // get one once their FIT is downloaded at import time, so summarise them
+      // from the activity instead of reaching into a workout that isn't there.
+      const ex  = r.workout ? r.workout.exercises[0] : null;
+      const set = ex ? ex.sets[0] : null;
+      const bits = (set
+        ? [ set.distance ? `${set.distance} km` : null,
+            set.duration ? App._fmtDuration(set.duration * 60) : null,
+            set.avgHr    ? `${set.avgHr} bpm` : null,
+            set.calories ? `${set.calories} kcal` : null ]
+        : [ r.exerciseName,
+            r.durationSec ? App._fmtDuration(r.durationSec) : null ]
+      ).filter(Boolean).join(' · ');
+
+      return `
+      <div class="list-item" data-action="garmin-toggle" data-gid="${r.garminId}">
+        <div class="list-item-left">
+          <div class="list-item-icon">${ex ? App._exIcon(ex.exerciseId) : '🏋️'}</div>
+          <div style="min-width:0">
+            <div class="list-item-name">${r.name}</div>
+            <div class="list-item-sub">${App._fmtDateFull(new Date(r.startedAt))} · ${bits}</div>
+          </div>
+        </div>
+        <div class="garmin-check ${on ? 'on' : ''}">${on ? App._icon('check', 14) : ''}</div>
+      </div>`;
+    }).join('');
+
+    const n = st.selected.size;
+    return `
+      <div class="section-header"><h2>New sessions</h2></div>
+      ${rows}
+      <div style="padding:1rem">
+        <button class="btn btn-primary" data-action="garmin-import" ${n ? '' : 'disabled'}>
+          ${n ? `Import ${n} session${n === 1 ? '' : 's'}` : 'Select a session'}
+        </button>
+      </div>
+      ${duplicates.length ? `
+        <div style="padding:0 1rem .5rem;color:var(--txt3);font-size:.75rem">
+          ${duplicates.length} already imported, skipped.
+        </div>` : ''}
+      ${App._garminSkipped(unsupported)}`;
+  },
+
+  // Strength sessions are listed rather than silently dropped: the watch records
+  // them as one auto-counted rep total with no exercise identity, so there is
+  // nothing to map onto the exercise library.
+  _garminSkipped(unsupported) {
+    if (!unsupported.length) return '';
+    const types = [...new Set(unsupported.map(r => r.type))].join(', ');
+    return `
+      <div style="padding:.5rem 1rem 1rem;color:var(--txt3);font-size:.75rem;line-height:1.5">
+        ${unsupported.length} session${unsupported.length === 1 ? '' : 's'} skipped (${types}) —
+        Garmin doesn't record which exercises these contained, so they can't be
+        imported as sets. Log those in GymTrack directly.
+      </div>`;
   },
 
   _workoutCard(w) {

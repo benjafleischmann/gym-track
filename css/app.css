@@ -1025,6 +1025,18 @@ canvas { display: block; max-width: 100%; }
 .list-item-right { color: var(--txt3); display: flex; align-items: center; gap: .4rem; font-size: .85rem; }
 .chevron-icon { width: 16px; height: 16px; color: var(--txt3); }
 
+/* Garmin import tick. flex-shrink:0 so a long session name can never squeeze
+   it to nothing and widen the row past the viewport. */
+.garmin-check {
+  width: 22px; height: 22px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--txt3);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff;
+}
+.garmin-check.on { background: var(--accent); border-color: var(--accent); }
+
 /* ─── Workout picker ───────────────────────────────────────────────────────── */
 .start-workout-hero {
   padding: 1.5rem 1rem 1rem;

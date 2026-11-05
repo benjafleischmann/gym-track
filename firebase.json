@@ -6,7 +6,9 @@
       ".firebaserc",
       "**/.*",
       "serve.sh",
-      "server.py"
+      "server.py",
+      "worker/**",
+      "build_exercise_library.py"
     ],
     "headers": [
       {
