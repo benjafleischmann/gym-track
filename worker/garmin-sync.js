@@ -10,15 +10,21 @@
  *
  *   GET /activities?since=YYYY-MM-DD[&limit=N]   → activity summaries (JSON)
  *   GET /fit?id=<activityId>                     → decompressed FIT bytes
- *   GET /sets?id=<activityId>                    → server-side set breakdown
+ *   GET /sets?id=<activityId>                    → set-breakdown probe (see below)
  *
  * Cardio needs only /activities — the summary JSON already carries duration,
  * distance, calories and heart rate.
  *
- * Strength is harder. The watch writes a single auto-counted rep blob with no
- * exercise identity, so /fit yields nothing useful for it. Any real per-exercise
- * breakdown exists only where it was entered or corrected in Garmin Connect
- * itself, and that lives server-side — which is what /sets reaches.
+ * Strength comes from /fit. The uploaded FIT carries setMesg records with
+ * reps, weight and a categorySubtype that names the exercise, which is the
+ * only per-set data available here.
+ *
+ * /sets is a diagnostic, not a data source. Corrections typed into Garmin
+ * Connect live in Connect's own database, served by its cookie-authenticated
+ * web API, and the Personal API does not expose them: exerciseSets, splits and
+ * typedsplits all 404, workouts returns [], and the base path returns the
+ * summary only. The route is kept so that claim stays testable rather than
+ * becoming folklore — it reports every candidate path and what it returned.
  *
  * Deploy by pasting into the Cloudflare dashboard editor. Set two secrets
  * (Settings → Variables and Secrets → Encrypt):
@@ -137,9 +143,16 @@ async function fetchFit(url, token, cors) {
     return json({ error: 'id must be a positive integer' }, 400, cors);
   }
 
-  const res = await garminGet(`/download-service/files/activity/${id}`, token);
+  // This serves the exact bytes the watch uploaded, so anything corrected later
+  // in Garmin Connect is absent from it — Connect renders edits from its own
+  // database and never rewrites the stored file. There is no re-exported
+  // alternative: /download-service/export/ regenerates TCX, GPX and CSV only,
+  // and its fit/ variant returns the original upload (verified — it 404s here).
+  const path = `/download-service/files/activity/${id}`;
+  const res = await garminGet(path, token);
+
   const zip = new Uint8Array(await res.arrayBuffer());
-  if (!zip.length) return json({ error: 'empty download' }, 502, cors);
+  if (!zip.length) return json({ error: 'empty download', path }, 502, cors);
 
   const fit = await unzipFirstEntry(zip);
 
@@ -154,17 +167,17 @@ async function fetchFit(url, token, cors) {
 }
 
 /**
- * The downloaded FIT only ever contains one rep-counted blob per strength
- * session, yet the activity summary can report many more sets — so Garmin
- * holds a set breakdown server-side that the watch file does not carry.
+ * Candidate paths for a server-side set breakdown. None of them carry one on
+ * the Personal API — measured 2026-11-05 against two strength activities:
  *
- * Which path serves it is not documented, and the documented one
- * (/workouts) comes back empty for watch-recorded sessions, so try each
- * candidate and return the first that actually has content. Responses are
- * passed through unmodified: the shape is undocumented, so trimming here
- * would risk discarding the exercise names.
+ *   exerciseSets  404      splits       404      typedsplits  404
+ *   workouts      200 []   (base)       200, activity summary only
+ *
+ * Kept as a probe so the conclusion can be re-measured if Garmin ever opens
+ * these up. Responses are passed through unmodified; the shape is
+ * undocumented, so trimming here would risk discarding exercise names.
  */
-const SET_PATHS = ['exerciseSets', 'workouts', 'splits', ''];
+const SET_PATHS = ['exerciseSets', 'workouts', 'splits', 'typedsplits', ''];
 
 async function fetchSets(url, token, cors) {
   const id = url.searchParams.get('id');
@@ -172,7 +185,13 @@ async function fetchSets(url, token, cors) {
     return json({ error: 'id must be a positive integer' }, 400, cors);
   }
 
+  // Every candidate is reported, not just the ones tried before a hit. The
+  // base path nearly always returns something, so stopping at the first hit
+  // hid whether the more specific paths came back empty or were rejected
+  // outright — which is the only interesting part of the answer.
   const tried = [];
+  let found = null;
+
   for (const suffix of SET_PATHS) {
     const path = `/activity-service/activity/${id}${suffix ? '/' + suffix : ''}`;
     let res;
@@ -187,13 +206,12 @@ async function fetchSets(url, token, cors) {
     let data;
     try { data = JSON.parse(text); } catch { data = null; }
 
-    if (data && !isEmpty(data)) {
-      return json({ source: path, data }, 200, cors);
-    }
-    tried.push({ path, status: res.status, empty: true });
+    const empty = !data || isEmpty(data);
+    tried.push({ path, status: res.status, empty, preview: text.slice(0, 300) });
+    if (!empty && !found) found = { source: path, data };
   }
 
-  return json({ source: null, data: null, tried }, 200, cors);
+  return json({ ...(found || { source: null, data: null }), tried }, 200, cors);
 }
 
 function isEmpty(v) {
