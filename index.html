@@ -2,7 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <!-- maximum-scale pins the page against a stray pinch, which otherwise scales
+       the layout and leaves it panned sideways — indistinguishable, to anyone
+       using the app, from the overflow bug the CSS already guards against.
+       Safari has ignored this since iOS 10, so `touch-action` in app.css is
+       what actually enforces it; this covers the browsers that still honour it. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 
   <!-- The GitHub Pages copy is superseded by Firebase Hosting, which is the
        only origin that is same-origin with the Google auth handler. Sign-in
@@ -21,7 +26,7 @@
   <meta name="theme-color" content="#FC4C02">
   <title>GymTrack</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="css/app.css?v=14">
+  <link rel="stylesheet" href="css/app.css?v=15">
 
   <!-- iOS home screen icons (add to home screen prompt) -->
   <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -98,7 +103,7 @@
   <script src="js/firebase.js?v=2"></script>
   <script src="js/recommend.js?v=1"></script>
   <script src="js/garmin.js?v=7"></script>
-  <script src="js/app.js?v=24"></script>
+  <script src="js/app.js?v=25"></script>
 
 </body>
 </html>

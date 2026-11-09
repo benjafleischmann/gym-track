@@ -1040,7 +1040,7 @@ const App = {
               <div class="list-item-icon">⚖️</div>
               <div>
                 <div class="list-item-name">${latest ? `${latest.weight ? latest.weight + ' kg' : '—'}${latest.bodyFat ? ` · ${latest.bodyFat}% BF` : ''}` : 'No measurements yet'}</div>
-                <div class="list-item-sub">${latest ? `Last logged ${App._fmtDateFull(new Date(latest.date))}` : 'Log your weight to start tracking'}</div>
+                <div class="list-item-sub">${latest ? `Last logged ${App._fmtMetricLogged(latest)}` : 'Log your weight to start tracking'}</div>
               </div>
             </div>
             ${App._icon('chevron-right', 18)}
@@ -1061,7 +1061,7 @@ const App = {
                 <div class="list-item-name">${Garmin.isConfigured() ? 'Import from Garmin' : 'Connect Garmin'}</div>
                 <div class="list-item-sub">${
                   Garmin.isConfigured()
-                    ? (cfg.lastSync ? `Last imported ${App._fmtDateFull(new Date(cfg.lastSync))}` : 'Connected — nothing imported yet')
+                    ? (cfg.lastSync ? `Last imported ${App._fmtDateTimeFull(new Date(cfg.lastSync))}` : 'Connected — nothing imported yet')
                     : 'Pull your runs and rides in automatically'
                 }</div>
               </div>
@@ -1218,7 +1218,7 @@ const App = {
 
         ${cfg.lastSync ? `
           <div style="padding:0 1rem .5rem;color:var(--txt3);font-size:.72rem">
-            Last imported ${App._fmtDateFull(new Date(cfg.lastSync))}
+            Last imported ${App._fmtDateTimeFull(new Date(cfg.lastSync))}
           </div>` : ''}
 
         ${body}
@@ -1587,7 +1587,8 @@ const App = {
     // Seed the body-metrics log so the weight chart starts from the assessment
     // rather than waiting for the first manual entry.
     if (profile.weightKg && !DB.getLatestBodyMetric()) {
-      DB.saveBodyMetric({ id: DB.uid(), date: new Date().toISOString(), weight: profile.weightKg });
+      const now = new Date().toISOString();
+      DB.saveBodyMetric({ id: DB.uid(), date: now, loggedAt: now, weight: profile.weightKg });
     }
 
     Firebase.onReady(() => Firebase.syncProfile(profile).catch(() => {}));
@@ -3101,6 +3102,9 @@ const App = {
     const metric = {
       id:     DB.uid(),
       date:   get('metric-date') || new Date().toISOString().slice(0, 10),
+      // The day above is a date the user can backdate, so it carries no time.
+      // Keep the clock separately rather than reading it off `date`.
+      loggedAt: new Date().toISOString(),
       weight: num(get('metric-weight')),
       bodyFat:num(get('metric-bodyfat')),
       measurements: {
@@ -3919,6 +3923,43 @@ const App = {
   _fmtDateFull(d) {
     if (isNaN(d.getTime())) return '';
     return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  },
+
+  /**
+   * Same date, with the clock time appended.
+   *
+   * For the handful of places that report when something last happened, where
+   * "today" on its own cannot tell you whether it ran a minute or ten hours
+   * ago. The time uses the device locale so it reads the same way as the clock
+   * in the status bar, rather than being forced to the en-US 12-hour format the
+   * dates use.
+   */
+  _fmtDateTimeFull(d) {
+    if (isNaN(d.getTime())) return '';
+    return `${this._fmtDateFull(d)} · ${this._fmtTime(d)}`;
+  },
+
+  /* Device locale, so it matches the clock in the status bar rather than being
+     forced to the en-US 12-hour format the dates use. */
+  _fmtTime(d) {
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  },
+
+  /**
+   * When a body measurement was taken, as "<its date> · <time it was entered>".
+   *
+   * These carry two different timestamps on purpose: `date` is the day the
+   * measurement belongs to and can be backdated, while `loggedAt` is when it
+   * was actually typed in. Taking the day from one and the clock from the other
+   * keeps a backdated entry from claiming it was logged today. Entries saved
+   * before `loggedAt` existed just show the day.
+   */
+  _fmtMetricLogged(m) {
+    const day = this._fmtDateFull(new Date(m.date));
+    if (!m.loggedAt) return day;
+    const time = this._fmtTime(new Date(m.loggedAt));
+    return time ? `${day} · ${time}` : day;
   },
 
   _fmtDateShort(d) {
