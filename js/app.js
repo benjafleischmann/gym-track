@@ -15,6 +15,13 @@ const App = {
     progressRange: 90,    // days shown on the Progress charts; null = all time
     progressExerciseId: null,
     progressRoutineId: null,
+    // Workout library browsing. `workoutCategory` is held in state rather than
+    // in params so going back from a workout returns to the category it was
+    // opened from. `workoutLevel` is cleared whenever a workout is opened, so
+    // each one starts at its own difficulty.
+    workoutCategory: null,
+    workoutLevel: null,
+    workoutDiffFilter: null,
     // Garmin lookup results, held in memory only — nothing is written to the
     // workout log until the user confirms the import.
     garmin: { loading: false, error: null, preview: null, selected: new Set(), range: 30 },
@@ -259,6 +266,7 @@ const App = {
       case 'workout-complete':app.innerHTML = this.screens.workoutComplete(params.workout, params.prs); break;
       case 'routines':        app.innerHTML = this.screens.routines();        break;
       case 'routine-detail':  app.innerHTML = this.screens.routineDetail(params.routineId); break;
+      case 'workout-category':app.innerHTML = this.screens.workoutCategory();  break;
       case 'create-routine':  app.innerHTML = this.screens.createRoutine(params.routineId); break;
       case 'progress':        app.innerHTML = this.screens.progress();        break;
       case 'workout-detail':  app.innerHTML = this.screens.workoutDetail(params.workoutId); break;
@@ -399,7 +407,6 @@ const App = {
       const myRoutines = DB.getRoutines();
       const tab = App.state.activeTab['workout'] || 0;
 
-      const templateCards = ROUTINE_TEMPLATES.map(t => App._routineCard(t, 'template')).join('');
       const myCards = myRoutines.length
         ? myRoutines.map(r => App._routineCard(r, 'mine')).join('')
         : `<div class="empty-state"><div class="empty-state-icon">📋</div>
@@ -414,12 +421,12 @@ const App = {
         </div>
 
         <div class="tab-bar">
-          <button class="tab-btn ${tab===0?'active':''}" data-action="set-tab" data-screen="workout" data-tab="0">Templates</button>
+          <button class="tab-btn ${tab===0?'active':''}" data-action="set-tab" data-screen="workout" data-tab="0">Workouts</button>
           <button class="tab-btn ${tab===1?'active':''}" data-action="set-tab" data-screen="workout" data-tab="1">My Routines</button>
         </div>
 
         <div style="padding:.75rem 1rem 0">
-          ${tab === 0 ? templateCards : myCards}
+          ${tab === 0 ? App._workoutCategoryGrid() : myCards}
         </div>
       </div>`;
     },
@@ -558,7 +565,7 @@ const App = {
 
         <div class="tab-bar">
           <button class="tab-btn ${tab===0?'active':''}" data-action="set-tab" data-screen="routines" data-tab="0">Recommended</button>
-          <button class="tab-btn ${tab===1?'active':''}" data-action="set-tab" data-screen="routines" data-tab="1">Templates</button>
+          <button class="tab-btn ${tab===1?'active':''}" data-action="set-tab" data-screen="routines" data-tab="1">Workouts</button>
           <button class="tab-btn ${tab===2?'active':''}" data-action="set-tab" data-screen="routines" data-tab="2">My Routines</button>
         </div>
 
@@ -566,7 +573,7 @@ const App = {
           ${tab === 0
             ? App._recommendedTab()
             : tab === 1
-              ? ROUTINE_TEMPLATES.map(t => App._routineCard(t, 'template')).join('')
+              ? App._workoutCategoryGrid()
               : myRoutines.length
                 ? myRoutines.map(r => App._routineCard(r, 'mine')).join('')
                 : `<div class="empty-state">
@@ -580,14 +587,65 @@ const App = {
       </div>`;
     },
 
+    // ── Workouts in one category ──────────────────────────────────────────────
+    workoutCategory() {
+      const key  = App.state.workoutCategory;
+      const meta = WORKOUT_CATEGORIES[key];
+      if (!meta) return App.screens.routines();
+
+      const all    = ROUTINE_TEMPLATES.filter(t => t.type === key);
+      const filter = App.state.workoutDiffFilter;
+      const shown  = filter ? all.filter(t => App._workoutHasLevel(t, filter)) : all;
+
+      // Sorted easiest first so the list reads as a progression rather than in
+      // whatever order the library happens to declare them.
+      shown.sort((a, b) => DIFFICULTIES[a.difficulty].order - DIFFICULTIES[b.difficulty].order);
+
+      return `
+      <div class="screen">
+        <div class="screen-header">
+          <button class="back-btn" data-action="back">${App._icon('chevron-left')}</button>
+          <span class="screen-title" style="flex:1;text-align:center">${meta.name}</span>
+          <div style="width:2rem"></div>
+        </div>
+
+        <div style="padding:0 1rem .5rem">
+          <p style="font-size:.82rem;color:var(--txt2);line-height:1.5;margin:0">${meta.blurb}</p>
+        </div>
+
+        <div class="filter-chips">
+          <button class="chip ${!filter ? 'selected' : ''}" data-action="set-diff-filter" data-diff="">All</button>
+          ${WORKOUT_LEVELS.map(l => `
+            <button class="chip ${filter === l ? 'selected' : ''}" data-action="set-diff-filter" data-diff="${l}">${DIFFICULTIES[l].name}</button>
+          `).join('')}
+        </div>
+
+        <div style="padding:.25rem 1rem 0">
+          ${shown.length
+            ? shown.map(t => App._routineCard(t, 'template', true)).join('')
+            : `<div class="empty-state">
+                <div class="empty-state-icon">${meta.icon}</div>
+                <div class="empty-state-title">Nothing at this level</div>
+                <div class="empty-state-text">No ${meta.name} workout runs at ${DIFFICULTIES[filter].name.toLowerCase()} level yet.</div>
+              </div>`}
+        </div>
+      </div>`;
+    },
+
     // ── Routine Detail ────────────────────────────────────────────────────────
     routineDetail(routineId) {
-      const r = routineId === 'rec-plan'
+      const base = routineId === 'rec-plan'
         ? App._recPlan()
         : routineId.startsWith('tpl-')
           ? ROUTINE_TEMPLATES.find(t => t.id === routineId)
           : DB.getRoutine(routineId);
-      if (!r) return App.screens.routines();
+      if (!base) return App.screens.routines();
+
+      // Everything below reads from the levelled copy, so the sets, reps and
+      // rest on screen are exactly what pressing Start will log.
+      const level  = App._workoutLevel(base);
+      const r      = scaleWorkout(base, level);
+      const levels = App._workoutLevels(base);
 
       const isTemplate = routineId.startsWith('tpl-');
       const isRec      = routineId === 'rec-plan';
@@ -604,20 +662,34 @@ const App = {
             ${isRec
               ? `<button class="btn btn-sm btn-ghost" data-action="save-rec-plan">Save</button>`
               : isTemplate
-                ? `<button class="btn btn-sm btn-ghost" data-action="save-template" data-id="${r.id}">Save</button>`
+                ? `<button class="btn btn-sm btn-ghost" data-action="save-template" data-id="${r.id}" data-level="${level}">Save</button>`
                 : `<button class="btn btn-sm btn-danger" data-action="delete-routine" data-id="${r.id}">Delete</button>`}
           </div>
         </div>
 
         <div style="padding:.5rem 1rem">
-          <div class="badge badge-${r.type}" style="margin-bottom:.5rem">${r.type}</div>
+          <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;margin-bottom:.5rem">
+            <div class="badge badge-${r.type}">${(WORKOUT_CATEGORIES[r.type] || {}).name || r.type}</div>
+            ${r.difficulty ? `<div class="diff-pill diff-${r.difficulty}">${DIFFICULTIES[r.difficulty].name}</div>` : ''}
+          </div>
           ${r.description ? `<p style="font-size:.85rem;color:var(--txt2);line-height:1.5">${r.description}</p>` : ''}
-          <div style="display:flex;gap:.75rem;margin-top:.5rem;font-size:.8rem;color:var(--txt2)">
+          <div style="display:flex;gap:.75rem;margin-top:.5rem;font-size:.8rem;color:var(--txt2);flex-wrap:wrap">
             <span>${r.days.length} day${r.days.length>1?'s':''}/week</span>
             <span>·</span>
             <span>Goal: ${App._fmtGoal(r.goal)}</span>
+            ${r.durationMin ? `<span>·</span><span>~${r.durationMin} min</span>` : ''}
           </div>
         </div>
+
+        ${levels.length > 1 ? `
+        <div style="padding:0 1rem .25rem">
+          <div class="level-label">Level</div>
+          <div class="level-switch">
+            ${levels.map(l => `
+              <button class="level-btn ${l === level ? 'active' : ''}" data-action="set-workout-level" data-level="${l}">${DIFFICULTIES[l].name}</button>
+            `).join('')}
+          </div>
+        </div>` : ''}
 
         <div class="tab-bar" style="padding:0 .5rem">
           ${r.days.map((d, i) => `
@@ -656,7 +728,7 @@ const App = {
         </div>` : ''}
 
         <div style="padding:1rem">
-          <button class="btn btn-primary" data-action="start-routine" data-id="${r.id}" data-day="${tab}">
+          <button class="btn btn-primary" data-action="start-routine" data-id="${r.id}" data-day="${tab}" data-level="${level}">
             ${App._icon('play')} Start Day ${tab + 1}
           </button>
         </div>
@@ -1582,13 +1654,17 @@ const App = {
 
   // ── Workout Engine ─────────────────────────────────────────────────────────
   workout: {
-    start(routineId, dayIndex) {
+    start(routineId, dayIndex, level) {
       const isTemplate = routineId && routineId.startsWith('tpl-');
-      const routine = routineId
+      const base = routineId
         ? (routineId === 'rec-plan' ? App._recPlan()
            : isTemplate ? ROUTINE_TEMPLATES.find(t => t.id === routineId)
            : DB.getRoutine(routineId))
         : null;
+
+      // The session logs the levelled targets, so what was on the detail screen
+      // is what gets pre-filled here.
+      const routine = level ? scaleWorkout(base, level) : base;
 
       const day = routine ? routine.days[dayIndex || 0] : null;
       const exercises = day ? day.exercises.map(ex => {
@@ -2190,13 +2266,32 @@ const App = {
         this.workout.start(null, 0);
         break;
       case 'start-routine':
-        this.workout.start(el.dataset.id, parseInt(el.dataset.day) || 0);
+        this.workout.start(el.dataset.id, parseInt(el.dataset.day) || 0, el.dataset.level || null);
         break;
       case 'open-routine': {
         this.state.activeTab['routine-detail'] = 0;
+        // Each workout starts at its own written difficulty; a level picked on
+        // the previous one must not carry over.
+        this.state.workoutLevel = null;
         this.navigate('routine-detail', { routineId: el.dataset.id });
         break;
       }
+      case 'open-workout-category':
+        this.state.workoutCategory   = el.dataset.cat;
+        this.state.workoutDiffFilter = null;
+        // The grid appears on both Routines and the workout picker, so back has
+        // to return to whichever one was used to get here.
+        this.state.workoutCategoryFrom = this.state.screen;
+        this.navigate('workout-category');
+        break;
+      case 'set-diff-filter':
+        this.state.workoutDiffFilter = el.dataset.diff || null;
+        this._render();
+        break;
+      case 'set-workout-level':
+        this.state.workoutLevel = el.dataset.level;
+        this._render();
+        break;
       case 'add-exercise':
         this._showExercisePicker(exerciseId => this.workout.addExercise(exerciseId));
         break;
@@ -2237,7 +2332,9 @@ const App = {
       case 'save-template': {
         const tpl = ROUTINE_TEMPLATES.find(t => t.id === el.dataset.id);
         if (tpl) {
-          const copy = JSON.parse(JSON.stringify(tpl));
+          // Saves the level currently on screen, so a scaled copy keeps the
+          // sets and reps the user was looking at rather than the written ones.
+          const copy = JSON.parse(JSON.stringify(scaleWorkout(tpl, el.dataset.level)));
           copy.id = DB.uid();
           copy.savedFrom = tpl.id;
           DB.saveRoutine(copy);
@@ -3028,7 +3125,8 @@ const App = {
   // ── Helpers ─────────────────────────────────────────────────────────────────
   _prevScreen() {
     const map = {
-      'routine-detail':  'routines',
+      'routine-detail':  this.state.workoutCategory ? 'workout-category' : 'routines',
+      'workout-category':this.state.workoutCategoryFrom || 'routines',
       'create-routine':  'routines',
       'workout-detail':  'progress',
       'log-metric':      'profile',
@@ -3167,24 +3265,71 @@ const App = {
     </div>`;
   },
 
-  _routineCard(r, kind) {
-    const typeColors = { hyrox: 'hyrox', crossfit: 'crossfit', strength: 'strength', cardio: 'cardio' };
-    const typeIcons  = { hyrox: '🏅', crossfit: '🔥', strength: '🏋️', cardio: '🏃', hiit: '⚡', custom: '📋', mixed: '⚡' };
-    const badge      = typeColors[r.type] || 'custom';
+  // `inCategory` suppresses the category badge on cards that are already inside
+  // a category screen, where repeating it on every row says nothing.
+  _routineCard(r, kind, inCategory = false) {
+    const meta  = WORKOUT_CATEGORIES[r.type];
+    const badge = meta ? r.type : 'custom';
+    const icon  = meta ? meta.icon : '📋';
 
     return `
     <div class="routine-card" data-action="open-routine" data-id="${r.id}">
       <div class="routine-card-top">
-        <div class="routine-type-icon badge-${badge}" style="background:var(--bg3)">${typeIcons[r.type]||'📋'}</div>
-        <div>
+        <div class="routine-type-icon badge-${badge}" style="background:var(--bg3)">${icon}</div>
+        <div class="routine-card-main">
           <div class="routine-card-name">${r.name}</div>
           <div class="routine-card-sub">
-            <span class="badge badge-${badge}" style="margin-right:.3rem">${r.type}</span>
+            ${inCategory ? '' : `<span class="badge badge-${badge}" style="margin-right:.3rem">${meta ? meta.name : r.type}</span>`}
             ${r.daysPerWeek ? r.daysPerWeek + ' days/week' : r.days.length + ' days'} · ${this._fmtGoal(r.goal)}
           </div>
         </div>
       </div>
       ${r.description ? `<div class="routine-card-desc">${r.description}</div>` : ''}
+      ${r.difficulty ? `
+      <div class="routine-card-meta">
+        <span class="diff-pill diff-${r.difficulty}">${DIFFICULTIES[r.difficulty].name}</span>
+        ${r.durationMin ? `<span class="routine-card-dur">~${r.durationMin} min</span>` : ''}
+        ${r.levels ? `<span class="routine-card-dur">${this._workoutLevels(r).length} levels</span>` : ''}
+      </div>` : ''}
+    </div>`;
+  },
+
+  // Which levels a workout can actually be run at: whatever it declares, plus
+  // the level it is written at, which always exists even with no `levels` block.
+  _workoutLevels(r) {
+    if (!r.levels) return r.difficulty ? [r.difficulty] : [];
+    return WORKOUT_LEVELS.filter(l => l === r.difficulty || r.levels[l]);
+  },
+
+  _workoutHasLevel(r, level) {
+    return this._workoutLevels(r).includes(level);
+  },
+
+  // Falls back to the level the workout is written at, so opening one never
+  // lands on a level it does not offer.
+  _workoutLevel(r) {
+    const picked = this.state.workoutLevel;
+    if (picked && this._workoutHasLevel(r, picked)) return picked;
+    return r.difficulty || 'intermediate';
+  },
+
+  _workoutCategoryGrid() {
+    // Only categories that actually hold a workout get a tile, so the grid can
+    // never offer a dead end.
+    const counts = {};
+    ROUTINE_TEMPLATES.forEach(t => { counts[t.type] = (counts[t.type] || 0) + 1; });
+
+    return `
+    <div class="cat-grid">
+      ${Object.keys(WORKOUT_CATEGORIES).filter(k => counts[k]).map(k => {
+        const meta = WORKOUT_CATEGORIES[k];
+        return `
+        <div class="cat-tile" data-action="open-workout-category" data-cat="${k}">
+          <div class="cat-tile-icon badge-${k}">${meta.icon}</div>
+          <div class="cat-tile-name">${meta.name}</div>
+          <div class="cat-tile-count">${counts[k]} workout${counts[k] === 1 ? '' : 's'}</div>
+        </div>`;
+      }).join('')}
     </div>`;
   },
 
@@ -3779,12 +3924,12 @@ const App = {
   },
 
   _fmtGoal(g) {
-    const map = { muscle: 'Build Muscle', fat_loss: 'Lose Fat', bulking: 'Bulk', endurance: 'Endurance', strength: 'Strength' };
+    const map = { muscle: 'Build Muscle', fat_loss: 'Lose Fat', bulking: 'Bulk', endurance: 'Endurance', strength: 'Strength', health: 'General Health' };
     return map[g] || g || '—';
   },
 
   _goalShort(g) {
-    const map = { muscle: 'Muscle', fat_loss: 'Fat Loss', bulking: 'Bulk', endurance: 'Endurance', strength: 'Strength' };
+    const map = { muscle: 'Muscle', fat_loss: 'Fat Loss', bulking: 'Bulk', endurance: 'Endurance', strength: 'Strength', health: 'Health' };
     return map[g] || g || '—';
   },
 
