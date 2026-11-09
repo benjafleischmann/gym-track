@@ -414,25 +414,29 @@ const Garmin = {
   },
 
   /**
-   * Garmin's exercise_name → a GymTrack exercise.
+   * Hand overrides for Garmin exercise names that name-matching gets wrong.
    *
-   * Alongside the coarse category, each set carries a categorySubtype naming
-   * the specific movement, which is where a cardio machine logged mid-session
-   * identifies itself. The subtype matters because the category alone is
-   * actively misleading for these: an indoor rower comes back as category
-   * 'row', which would otherwise be filed as a Dumbbell Row.
+   * Nearly every Garmin name matches a library exercise once both sides are
+   * normalised, so this is only for the cases where it doesn't:
    *
-   * Only entries that beat the category default need listing; everything else
-   * falls through to CATEGORY_MAP.
+   *  - the rowing machine, which is a cardio machine wearing a strength
+   *    category ('row'), and must not become a Dumbbell Row;
+   *  - names where an exact match would pick a library duplicate over the
+   *    hand-written exercise that routines and logged history point at
+   *    ('Barbell Deadlift' exists as x-barbell-deadlift, but `deadlift` is
+   *    the one carrying the user's PRs).
    */
   SUBTYPE_MAP: {
-    indoorRow:   'rowing-machine',
-    calorieRow:  'rowing-machine',
-    meterRow:    'rowing-machine',
+    indoorRow:       'rowing-machine',
+    calorieRow:      'rowing-machine',
+    meterRow:        'rowing-machine',
     kettlebellSwing: 'kb-swing',
-    boxJump:     'box-jumps',
-    burpee:      'burpees',
-    weightedBurpee: 'burpees',
+    boxJump:         'box-jumps',
+    burpee:          'burpees',
+    weightedBurpee:  'burpees',
+    barbellDeadlift: 'deadlift',
+    barbellBenchPress: 'bench-press',
+    barbellBackSquat:  'squat',
   },
 
   // Where Garmin counted reps but couldn't identify the movement at all.
@@ -449,9 +453,74 @@ const Garmin = {
     return (table && table[subtype]) || null;
   },
 
-  /** The GymTrack exercise id for one of Garmin's ranked guesses. */
-  _guessId(g) {
-    return (g.name && this.SUBTYPE_MAP[g.name]) || this.CATEGORY_MAP[g.category] || null;
+  // Collapse to comparable letters so 'latPulldown', 'Lat Pull-down' and
+  // 'Lat Pulldown' all land on the same key.
+  _norm(s) {
+    return String(s || '')
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
+  },
+
+  /**
+   * Normalised library name → exercise id, built once on first use.
+   *
+   * Hand-written exercises win ties over the imported library (ids prefixed
+   * 'x-'): both 'Barbell Row' spellings exist, but the hand-written one is
+   * what routines reference and what logged history is keyed on, so matching
+   * the library duplicate instead would silently fork a user's PRs.
+   */
+  _nameIndex() {
+    if (!this._nameIdx) {
+      const idx = {};
+      Object.values(EXERCISES).forEach(e => {
+        const k = this._norm(e.name);
+        if (!k) return;
+        if (!(k in idx) || (idx[k].startsWith('x-') && !e.id.startsWith('x-'))) {
+          idx[k] = e.id;
+        }
+      });
+      this._nameIdx = idx;
+    }
+    return this._nameIdx;
+  },
+
+  /**
+   * Resolve one of Garmin's ranked guesses to a GymTrack exercise id, or null.
+   *
+   * Note this says nothing about how much the result can be trusted: a
+   * categorySubtype on a freestyle session is itself a guess from wrist
+   * motion, so resolving it precisely still only produces a precise guess.
+   * Only a workout-step title is a fact — see `_isNamed`.
+   */
+  _resolveGuess(g) {
+    if (!g) return null;
+
+    const byHand = g.name && this.SUBTYPE_MAP[g.name];
+    if (byHand) return byHand;
+
+    // The title is Garmin's own display name for the step ('Lat Pull-down'),
+    // which is closer to how the library spells things than the enum key.
+    const idx = this._nameIndex();
+    for (const candidate of [g.title, g.name]) {
+      const hit = candidate && idx[this._norm(candidate)];
+      if (hit) return hit;
+    }
+
+    return this.CATEGORY_MAP[g.category] || null;
+  },
+
+  /**
+   * Whether a set's exercise is known rather than guessed.
+   *
+   * True only when the session was trained from a structured workout, which is
+   * the one case where the watch was told what it was recording instead of
+   * inferring it. A freestyle session can still carry a categorySubtype — an
+   * olympicLift/'snatch' reading off a wrist — and that is a guess however
+   * specific it sounds, so it stays flagged for review.
+   */
+  _isNamed(g) {
+    return !!(g && g.title);
   },
 
   /**
@@ -489,6 +558,15 @@ const Garmin = {
       sdk.Stream.fromArrayBuffer(await res.arrayBuffer())).read();
     const types = sdk.Profile.types;
 
+    // A session trained from a structured workout carries exerciseTitleMesgs:
+    // the human-readable name the workout gave each step, keyed by the same
+    // (category, subtype) pair the sets use. Freestyle sessions have none, and
+    // then there is nothing to key on but the watch's motion guesses.
+    const titles = {};
+    (messages.exerciseTitleMesgs || []).forEach(t => {
+      if (t.wktStepName) titles[`${t.exerciseCategory}|${t.exerciseName}`] = t.wktStepName;
+    });
+
     // Every set carries the session's start time as its `timestamp`, so
     // messageIndex is the only reliable ordering.
     const sets = (messages.setMesgs || [])
@@ -499,11 +577,17 @@ const Garmin = {
         weight:      s.weight > 0 ? this._round(s.weight, 1) : null,
         durationSec: s.duration || 0,
         startMs:     +new Date(s.startTime) || null,
-        // Three ranked guesses from wrist motion, best first.
-        guesses: (s.category || []).map((category, i) => ({
-          category,
-          name: this._exName(types, category, (s.categorySubtype || [])[i]),
-        })).filter(g => g.category && g.category !== 'unknown'),
+        // Three ranked guesses from wrist motion, best first. On a structured
+        // session all three are the same and correct, because the workout told
+        // the watch what it was looking at.
+        guesses: (s.category || []).map((category, i) => {
+          const subtype = (s.categorySubtype || [])[i];
+          return {
+            category,
+            name:  this._exName(types, category, subtype),
+            title: titles[`${category}|${subtype}`] || null,
+          };
+        }).filter(g => g.category && g.category !== 'unknown'),
       }));
 
     const records = (messages.recordMesgs || [])
@@ -534,16 +618,27 @@ const Garmin = {
     const startedAt = this._toISO(a.startLocal, a.startGMT);
     const exercises = [];
 
+    // Two different Garmin exercises can still resolve to the same GymTrack id.
+    // Blocks are keyed on the Garmin name as well as the id so they stay
+    // separate rather than merging into one block with contradictory loads.
+    let lastKey = null;
+
     fitSets.forEach(s => {
-      const id   = (s.guesses.map(g => this._guessId(g)).find(Boolean))
-                   || this._GUESS_FALLBACK;
-      const info = getExercise(id);
+      // The best-ranked guess that maps to something; its own title decides
+      // whether the result is a fact or still needs the user's eye.
+      const used  = s.guesses.find(g => this._resolveGuess(g));
+      const id    = (used && this._resolveGuess(used)) || this._GUESS_FALLBACK;
+      const exact = this._isNamed(used);
+      const info  = getExercise(id);
       if (!info) return;
 
       const cardio = App._isCardio(info.measureType);
+      const top    = used || {};
+      const key    = `${id}|${top.title || top.name || top.category || ''}`;
 
       let block = exercises[exercises.length - 1];
-      if (!block || block.exerciseId !== id) {
+      if (!block || key !== lastKey) {
+        lastKey = key;
         block = {
           exerciseId:   id,
           exerciseName: info.name,
@@ -553,9 +648,11 @@ const Garmin = {
           restSeconds:  cardio ? 0 : 90,
           suggestion:   null,
           // Drives the "needs review" affordance and offers Garmin's other
-          // two candidates as one-tap corrections.
-          guessed:        true,
-          garminGuesses:  s.guesses.map(g => g.name || g.category),
+          // two candidates as one-tap corrections. A named set is not a guess:
+          // the workout told the watch what it was, so flagging it would ask
+          // the user to confirm something Garmin already knows.
+          guessed:        !exact,
+          garminGuesses:  s.guesses.map(g => g.title || g.name || g.category),
           sets: [],
         };
         exercises.push(block);

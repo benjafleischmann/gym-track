@@ -1228,9 +1228,11 @@ const App = {
                   style="width:100%;padding:.85rem;border-radius:var(--radius)"
                   ${st.loading ? 'disabled' : ''}>Re-check imported sessions</button>
           <div style="margin-top:.5rem;color:var(--txt3);font-size:.72rem;line-height:1.45">
-            Reads every session in this range again, so corrections you make in
-            Garmin Connect replace what GymTrack already stored. Downloads a file
-            per strength session, so it is slower than a normal check.
+            Reads every session in this range again and re-decodes it. Renaming
+            an exercise in Garmin Connect does not reach GymTrack — Connect keeps
+            those edits to itself — so this only helps when GymTrack has learnt
+            to read a session better. Downloads a file per strength session, so
+            it is slower than a normal check.
           </div>
         </div>
 
@@ -3235,8 +3237,9 @@ const App = {
     return `
       <div style="padding:.5rem 1rem 1rem;color:var(--txt3);font-size:.75rem;line-height:1.5">
         ${unsupported.length} session${unsupported.length === 1 ? '' : 's'} skipped (${types}) —
-        Garmin doesn't record which exercises these contained, so they can't be
-        imported as sets. Log those in GymTrack directly.
+        the watch only guessed at these from wrist motion, so there are no
+        exercises to import. Train from a workout sent to your watch and Garmin
+        records the real exercise names; otherwise log them in GymTrack directly.
       </div>`;
   },
 
