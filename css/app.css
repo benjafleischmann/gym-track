@@ -765,15 +765,35 @@ canvas { display: block; max-width: 100%; }
   scrollbar-width: none;
 }
 .tab-bar::-webkit-scrollbar { display: none; }
+/* Tabs give up their side padding before the row gives up fitting. With a
+   fixed 1rem each side and no shrinking, the three Routines tabs demanded
+   370px and were simply cut off below that — the widest phone screen it did
+   not fit was 360px. The padding now shrinks with the viewport and the labels
+   can ellipsis as a last resort, so the row fits the screen rather than the
+   screen having to fit the row. `.tab-bar` keeps its overflow-x as the final
+   fallback for something narrower than any phone. */
 .tab-btn {
-  padding: .7rem 1rem;
+  /* Shrink but never grow: a bar with a single day tab would otherwise
+     stretch it across the whole row and the active underline would read as a
+     plain border rather than an indicator. */
+  flex: 0 1 auto;
+  min-width: 0;
+  text-align: center;
+  /* Full 1rem from 400px up, tapering to .35rem at 320px and holding there.
+     A plain `vw` ratio would scale the padding down on every phone — 2.2vw is
+     only 8.6px at 390px — so it is tied to how far below 400px the screen
+     actually is instead, and the screens that already fit keep the original
+     spacing. 320px is the floor because that is the narrowest phone still
+     sold; anything below that falls through to the ellipsis. */
+  padding: .7rem clamp(.35rem, calc(.35rem + (100vw - 320px) * .13), 1rem);
   font-size: .85rem;
   font-weight: 600;
   color: var(--txt3);
   border-bottom: 2px solid transparent;
   white-space: nowrap;
-  flex-shrink: 0;
-  transition: all .15s;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color .15s, border-color .15s;
 }
 .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
 
